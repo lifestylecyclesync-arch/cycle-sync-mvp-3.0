@@ -5,8 +5,8 @@ import 'package:cycle_sync_mvp_2/core/logger.dart';
 class SupabaseConfig {
   // TODO: Replace with your actual Supabase project URL and API key
   // Get these from your Supabase project settings
-  static const String _supabaseUrl = 'YOUR_SUPABASE_URL';
-  static const String _supabaseAnonKey = 'YOUR_SUPABASE_ANON_KEY';
+  static const String _supabaseUrl = 'https://aoimvxciibxxcxgeeocz.supabase.co';
+  static const String _supabaseAnonKey = 'sb_publishable_uyaQHsPoIVvj4CvTqVpVxA_0fEatEmV';
 
   /// Initialize Supabase
   /// Call this in main.dart before runApp()

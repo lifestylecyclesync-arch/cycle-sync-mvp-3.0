@@ -1,22 +1,53 @@
 import 'package:flutter/material.dart';
-import 'package:cycle_sync_mvp_2/presentation/pages/welcome_screen.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cycle_sync_mvp_2/core/logger.dart';
+import 'package:cycle_sync_mvp_2/presentation/pages/app_shell.dart';
+import 'package:cycle_sync_mvp_2/presentation/pages/onboarding_page.dart';
+import 'package:cycle_sync_mvp_2/presentation/providers/onboarding_provider.dart';
 
-void main() {
-  runApp(const MyApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  AppLogger.info('App starting - onboarding → dashboard flow');
+  
+  runApp(const ProviderScope(child: MyApp()));
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends ConsumerWidget {
   const MyApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    AppLogger.info('Building MyApp');
+    
+    // Watch onboarding state - async provider, so handle loading/error states
+    final hasCompletedOnboardingAsync = ref.watch(hasCompletedOnboardingProvider);
+
     return MaterialApp(
       title: 'Cycle Sync',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const WelcomeScreen(),
+      home: hasCompletedOnboardingAsync.when(
+        data: (hasCompleted) {
+          AppLogger.info('Onboarding completed: $hasCompleted');
+          return hasCompleted ? const AppShell() : const OnboardingPage();
+        },
+        loading: () {
+          AppLogger.info('Loading onboarding state...');
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
+        },
+        error: (error, st) {
+          AppLogger.info('Error loading onboarding state: $error');
+          // Default to showing onboarding on error
+          return const OnboardingPage();
+        },
+      ),
+      routes: {
+        '/home': (context) => const AppShell(),
+        '/onboarding': (context) => const OnboardingPage(),
+      },
     );
   }
 }

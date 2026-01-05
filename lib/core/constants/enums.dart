@@ -136,4 +136,11 @@ enum HormonalState {
         return 'Low E, High P';
     }
   }
+
+  static HormonalState fromString(String value) {
+    return HormonalState.values.firstWhere(
+      (e) => e.toDisplayString().toLowerCase() == value.toLowerCase(),
+      orElse: () => HormonalState.lowELowP,
+    );
+  }
 }
