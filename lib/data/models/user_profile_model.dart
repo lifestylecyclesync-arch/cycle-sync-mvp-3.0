@@ -1,7 +1,7 @@
 import 'package:cycle_sync_mvp_2/domain/entities/user_profile.dart';
 
 class UserProfileModel extends UserProfile {
-  const UserProfileModel({
+  UserProfileModel({
     required super.id,
     required super.name,
     required super.cycleLength,
