@@ -1,12 +1,14 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cycle_sync_mvp_2/core/constants/app_constants.dart';
 import 'package:cycle_sync_mvp_2/core/constants/enums.dart';
-import 'package:cycle_sync_mvp_2/domain/entities/user_profile.dart';
 import 'package:cycle_sync_mvp_2/presentation/providers/cycle_phase_provider.dart';
-import 'package:cycle_sync_mvp_2/presentation/providers/user_profile_provider.dart';
+import 'package:cycle_sync_mvp_2/presentation/providers/repositories_provider.dart';
+import 'package:cycle_sync_mvp_2/presentation/providers/auth_provider.dart';
 import 'package:cycle_sync_mvp_2/presentation/providers/bottom_nav_provider.dart';
+import 'package:cycle_sync_mvp_2/presentation/providers/guest_mode_provider.dart';
 
 class PlannerPage extends ConsumerStatefulWidget {
   const PlannerPage({super.key});
@@ -259,128 +261,563 @@ class DailyCardSheet extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final isGuest = ref.watch(guestModeProvider);
+    
+    // If guest mode, load from SharedPreferences
+    if (isGuest) {
+      return FutureBuilder<SharedPreferences>(
+        future: SharedPreferences.getInstance(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (!snapshot.hasData) {
+            return const Center(child: Text('Failed to load data'));
+          }
+
+          final prefs = snapshot.data!;
+          final lifestyleAreas = prefs.getStringList('lifestyleAreas') ?? [];
+          final fastingPref = prefs.getString('fasting_preference') ?? 'Beginner';
+
+          return ref.watch(cyclePhaseProvider(date)).when(
+            data: (phaseInfo) => _buildDailyCardContent(
+              context,
+              ref,
+              phaseInfo,
+              lifestyleAreas,
+              fastingPref,
+              date,
+            ),
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (err, stack) => Center(child: Text('Error: $err')),
+          );
+        },
+      );
+    }
+
+    // Authenticated mode: fetch from Supabase
     final userProfileAsync = ref.watch(userProfileProvider);
     
     return userProfileAsync.when(
       data: (userProfile) {
+        if (userProfile == null) {
+          return Center(
+            child: Text('Profile not found. Please complete onboarding.'),
+          );
+        }
+
         print('[DailyCard] Loaded user profile with lifestyle areas: ${userProfile.lifestyleAreas}');
         return ref.watch(cyclePhaseProvider(date)).when(
-          data: (phaseInfo) {
-            return DraggableScrollableSheet(
-              initialChildSize: 0.7,
-              minChildSize: 0.5,
-              maxChildSize: 0.95,
-              builder: (context, scrollController) {
-                return Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(AppConstants.borderRadiusLarge),
-                      topRight: Radius.circular(AppConstants.borderRadiusLarge),
-                    ),
-                  ),
-                  child: ListView(
-                    controller: scrollController,
-                    padding: EdgeInsets.all(AppConstants.spacingLg),
-                    children: [
-                      // Handle bar
-                      Center(
-                        child: Container(
-                          width: 40,
-                          height: 4,
-                          margin: EdgeInsets.only(bottom: AppConstants.spacingMd),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade300,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                      ),
-                      
-                      // Header
-                      Text(
-                        'Day ${phaseInfo.dayOfCycle} • ${phaseInfo.lifestylePhase}',
-                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      SizedBox(height: AppConstants.spacingSm),
-                      Text(
-                        '${phaseInfo.displayName} Phase (Days ${phaseInfo.startDay}–${phaseInfo.endDay})',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                      SizedBox(height: AppConstants.spacingXl),
-                      
-                      // Modules based on selected lifestyle areas
-                      if (userProfile.lifestyleAreas.contains('Nutrition'))
-                        _buildModule(
-                          context,
-                          'Food Vibe',
-                          phaseInfo.suggestion.foodVibe,
-                        ),
-                      
-                      if (userProfile.lifestyleAreas.contains('Fitness'))
-                        _buildModule(
-                          context,
-                          'Workout Mode',
-                          phaseInfo.suggestion.workoutMode,
-                        ),
-                      
-                      if (userProfile.lifestyleAreas.contains('Fasting'))
-                        _buildFastingModule(
-                          context,
-                          ref,
-                          phaseInfo.suggestion,
-                          userProfile.fastingPreference,
-                        ),
-                      
-                      if (userProfile.lifestyleAreas.isEmpty)
-                        Padding(
-                          padding: EdgeInsets.symmetric(vertical: AppConstants.spacingXl),
-                          child: Text(
-                            'Add lifestyle areas to see personalized recommendations',
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Colors.grey.shade600,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      
-                      SizedBox(height: AppConstants.spacingXl),
-                      
-                      // Actions
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.add),
-                        label: const Text('Add Lifestyle Area'),
-                        onPressed: () => _showAddLifestyleAreaModal(context, ref, userProfile),
-                      ),
-                      SizedBox(height: AppConstants.spacingMd),
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.note_add),
-                        label: const Text('Log Notes'),
-                        onPressed: () => _showLogNotesModal(context, date),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            );
-          },
-          loading: () => Center(
-            child: CircularProgressIndicator(),
+          data: (phaseInfo) => _buildDailyCardContent(
+            context,
+            ref,
+            phaseInfo,
+            userProfile.lifestyleAreas,
+            userProfile.fastingPreference,
+            date,
           ),
-          error: (err, stack) => Center(
-            child: Text('Error: $err'),
-          ),
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (err, stack) => Center(child: Text('Error: $err')),
         );
       },
-      loading: () => Center(
+      loading: () => const Center(
         child: CircularProgressIndicator(),
       ),
       error: (err, stack) => Center(
         child: Text('Error: $err'),
       ),
+    );
+  }
+
+  Widget _buildDailyCardContent(
+    BuildContext context,
+    WidgetRef ref,
+    dynamic phaseInfo,
+    List<String> lifestyleAreas,
+    String fastingPref,
+    DateTime selectedDate,
+  ) {
+    // Fetch recommendations once at page level to avoid duplicate queries
+    final phaseName = phaseInfo.displayName;
+    final recommendationsAsync = ref.watch(phaseRecommendationsProvider(phaseName));
+    
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      builder: (context, scrollController) {
+        return Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(AppConstants.borderRadiusLarge),
+              topRight: Radius.circular(AppConstants.borderRadiusLarge),
+            ),
+          ),
+          child: ListView(
+            controller: scrollController,
+            padding: EdgeInsets.all(AppConstants.spacingLg),
+            children: [
+              // Handle bar
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: EdgeInsets.only(bottom: AppConstants.spacingMd),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              
+              // Header
+              Text(
+                'Day ${phaseInfo.dayOfCycle} • ${phaseInfo.lifestylePhase}',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              SizedBox(height: AppConstants.spacingSm),
+              Text(
+                '${phaseInfo.displayName} Phase (Days ${phaseInfo.startDay}–${phaseInfo.endDay})',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.grey.shade600,
+                ),
+              ),
+              SizedBox(height: AppConstants.spacingXl),
+              
+              // Modules based on selected lifestyle areas
+              if (lifestyleAreas.contains('Nutrition'))
+                _buildNutritionModule(
+                  context,
+                  ref,
+                  phaseInfo.suggestion.foodVibe,
+                  phaseName,
+                  selectedDate,
+                  recommendationsAsync,
+                ),
+              
+              if (lifestyleAreas.contains('Fitness'))
+                _buildFitnessModule(
+                  context,
+                  ref,
+                  phaseInfo.suggestion.workoutMode,
+                  phaseName,
+                  selectedDate,
+                  recommendationsAsync,
+                ),
+              
+              if (lifestyleAreas.contains('Fasting'))
+                _buildFastingModule(
+                  context,
+                  ref,
+                  phaseInfo.suggestion,
+                  fastingPref,
+                ),
+              
+              if (lifestyleAreas.isEmpty)
+                Padding(
+                  padding: EdgeInsets.symmetric(vertical: AppConstants.spacingXl),
+                  child: Text(
+                    'Add lifestyle areas to see personalized recommendations',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.grey.shade600,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              
+              SizedBox(height: AppConstants.spacingXl),
+              
+              // Actions
+              OutlinedButton.icon(
+                icon: const Icon(Icons.add),
+                label: const Text('Add Lifestyle Area'),
+                onPressed: () => _showAddLifestyleAreaModal(context, ref, lifestyleAreas),
+              ),
+              SizedBox(height: AppConstants.spacingMd),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.note_add),
+                label: const Text('Log Notes'),
+                onPressed: () => _showLogNotesModal(context, date),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildNutritionModule(
+    BuildContext context,
+    WidgetRef ref,
+    String foodVibe,
+    String phaseName,
+    DateTime selectedDate,
+    AsyncValue<Map<String, dynamic>?> recommendationsAsync,
+  ) {
+    final userId = ref.watch(userIdProvider);
+
+    return recommendationsAsync.when(
+      data: (data) {
+        if (data == null) {
+          return _buildModule(context, 'Diet', foodVibe);
+        }
+        
+        final recipes = (data['food_recipes'] as String?)?.split(' • ') ?? [];
+        return Padding(
+          padding: EdgeInsets.only(bottom: AppConstants.spacingLg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Diet',
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              SizedBox(height: AppConstants.spacingSm),
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () {
+                    _showDietModal(context, foodVibe, recipes, userId, selectedDate, ref);
+                  },
+                  borderRadius: BorderRadius.circular(AppConstants.borderRadiusSmall),
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(horizontal: AppConstants.spacingSm, vertical: AppConstants.spacingSm),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          foodVibe,
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey.shade800,
+                          ),
+                        ),
+                        SizedBox(width: AppConstants.spacingSm),
+                        Icon(
+                          Icons.arrow_forward_ios,
+                          size: 14,
+                          color: Colors.grey.shade500,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Divider(
+                height: AppConstants.spacingLg,
+                color: Colors.grey.shade200,
+              ),
+              // Show selected recipe if it exists
+              if (userId != null)
+                ref.watch(dailySelectionsProvider(selectedDate)).when(
+                  data: (selections) {
+                    final selectedRecipesJson = selections?['selected_recipes'] as String?;
+                    List<String> selectedRecipes = [];
+                    
+                    if (selectedRecipesJson != null && selectedRecipesJson.isNotEmpty) {
+                      try {
+                        selectedRecipes = List<String>.from(jsonDecode(selectedRecipesJson) as List);
+                      } catch (e) {
+                        print('[Error] Failed to parse recipes: $e');
+                      }
+                    }
+                    
+                    if (selectedRecipes.isEmpty) {
+                      return SizedBox(height: AppConstants.spacingSm);
+                    }
+                    
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(height: AppConstants.spacingMd),
+                        ...selectedRecipes.map((recipe) => Padding(
+                          padding: EdgeInsets.only(bottom: AppConstants.spacingSm),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 24,
+                                height: 24,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: Colors.grey.shade400,
+                                    width: 2,
+                                  ),
+                                ),
+                              ),
+                              SizedBox(width: AppConstants.spacingSm),
+                              Expanded(
+                                child: Text(
+                                  recipe,
+                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        )),
+                      ],
+                    );
+                  },
+                  loading: () => Padding(
+                    padding: EdgeInsets.only(top: AppConstants.spacingMd),
+                    child: const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                  error: (err, stack) => SizedBox(height: AppConstants.spacingSm),
+                )
+              else
+                SizedBox(height: AppConstants.spacingSm),
+            ],
+          ),
+        );
+      },
+      loading: () => Padding(
+        padding: EdgeInsets.only(bottom: AppConstants.spacingLg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Food Vibe',
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            SizedBox(height: AppConstants.spacingMd),
+            const SizedBox(
+              height: 20,
+              width: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ],
+        ),
+      ),
+      error: (err, stack) => _buildModule(context, 'Food Vibe', foodVibe),
+    );
+  }
+
+  Widget _buildFitnessModule(
+    BuildContext context,
+    WidgetRef ref,
+    String workoutMode,
+    String phaseName,
+    DateTime selectedDate,
+    AsyncValue<Map<String, dynamic>?> recommendationsAsync,
+  ) {
+    print('[DEBUG] _buildFitnessModule called with workoutMode: $workoutMode, phaseName: $phaseName');
+    final userId = ref.watch(userIdProvider);
+
+    return recommendationsAsync.when(
+      data: (data) {
+        if (data == null) {
+          // Show clickable workout mode even when recommendation data is null
+          return Padding(
+            padding: EdgeInsets.only(bottom: AppConstants.spacingLg),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Workout Mode',
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                SizedBox(height: AppConstants.spacingSm),
+                InkWell(
+                  onTap: () {
+                    print('[DEBUG] Workout Mode tapped (from fallback) - workoutMode: $workoutMode');
+                    // Fetch data and show modal
+                    ref.read(phaseRecommendationsProvider(phaseName)).whenData((recData) {
+                      if (recData != null) {
+                        final workouts = (recData['workout_types'] as String?)?.split(' • ') ?? [];
+                        _showWorkoutTypesModal(context, workoutMode, workouts, userId, selectedDate, ref);
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('No workout types available for this phase'),
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                      }
+                    });
+                  },
+                  splashColor: Colors.blue.withOpacity(0.1),
+                  highlightColor: Colors.transparent,
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 4),
+                    child: Text(
+                      workoutMode,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w500,
+                        color: Colors.blue,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ),
+                ),
+                Divider(
+                  height: AppConstants.spacingLg,
+                  color: Colors.grey.shade200,
+                ),
+              ],
+            ),
+          );
+        }
+        
+        final workouts = (data['workout_types'] as String?)?.split(' • ') ?? [];
+        
+        return Padding(
+          padding: EdgeInsets.only(bottom: AppConstants.spacingLg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Workout Mode',
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              SizedBox(height: AppConstants.spacingSm),
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () {
+                    print('[DEBUG] Workout Mode tapped - workouts count: ${workouts.length}, userId: $userId');
+                    _showWorkoutTypesModal(context, workoutMode, workouts, userId, selectedDate, ref);
+                  },
+                  borderRadius: BorderRadius.circular(AppConstants.borderRadiusSmall),
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(horizontal: AppConstants.spacingSm, vertical: AppConstants.spacingSm),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          workoutMode,
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey.shade800,
+                          ),
+                        ),
+                        SizedBox(width: AppConstants.spacingSm),
+                        Icon(
+                          Icons.arrow_forward_ios,
+                          size: 14,
+                          color: Colors.grey.shade500,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              // Show selected workout if it exists
+              if (userId != null)
+                ref.watch(dailySelectionsProvider(selectedDate)).when(
+                  data: (selections) {
+                    final selectedWorkoutsJson = selections?['selected_workouts'] as String?;
+                    List<String> selectedWorkouts = [];
+                    
+                    if (selectedWorkoutsJson != null && selectedWorkoutsJson.isNotEmpty) {
+                      try {
+                        selectedWorkouts = List<String>.from(jsonDecode(selectedWorkoutsJson) as List);
+                      } catch (e) {
+                        print('[Error] Failed to parse workouts: $e');
+                      }
+                    }
+                    
+                    if (selectedWorkouts.isEmpty) {
+                      return SizedBox(height: AppConstants.spacingSm);
+                    }
+                    
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(height: AppConstants.spacingMd),
+                        ...selectedWorkouts.map((workout) => Padding(
+                          padding: EdgeInsets.only(bottom: AppConstants.spacingSm),
+                          child: GestureDetector(
+                            onTap: () {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('$workout marked as planned'),
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+                            },
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 24,
+                                  height: 24,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: Colors.grey.shade400,
+                                      width: 2,
+                                    ),
+                                  ),
+                                ),
+                                SizedBox(width: AppConstants.spacingSm),
+                                Expanded(
+                                  child: Text(
+                                    workout,
+                                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )),
+                      ],
+                    );
+                  },
+                  loading: () => Padding(
+                    padding: EdgeInsets.only(top: AppConstants.spacingMd),
+                    child: const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                  error: (err, stack) => SizedBox(height: AppConstants.spacingSm),
+                )
+              else
+                SizedBox(height: AppConstants.spacingSm),
+            ],
+          ),
+        );
+      },
+      loading: () => Padding(
+        padding: EdgeInsets.only(bottom: AppConstants.spacingLg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Workout Mode',
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            SizedBox(height: AppConstants.spacingMd),
+            const SizedBox(
+              height: 20,
+              width: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ],
+        ),
+      ),
+      error: (err, stack) => _buildModule(context, 'Workout Mode', workoutMode),
     );
   }
 
@@ -449,7 +886,7 @@ class DailyCardSheet extends ConsumerWidget {
               ),
               GestureDetector(
                 onTap: () {
-                  ref.read(bottomNavNotifierProvider.notifier).selectTab(BottomNavTab.profile);
+                  ref.read(bottomNavTabProvider.notifier).selectTab(BottomNavTab.profile);
                   Navigator.pop(context);
                 },
                 child: Text(
@@ -474,55 +911,323 @@ class DailyCardSheet extends ConsumerWidget {
   void _showAddLifestyleAreaModal(
     BuildContext context,
     WidgetRef ref,
-    UserProfile userProfile,
+    List<String> currentAreas,
   ) {
-    final areas = ['Nutrition', 'Fitness', 'Fasting'];
-    final selectedAreas = List<String>.from(userProfile.lifestyleAreas);
+    final categoriesAsync = ref.watch(lifestyleCategoriesProvider);
+    final selectedAreas = List<String>.from(currentAreas);
 
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Text('Add Lifestyle Area'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: areas.map((area) {
-              final isSelected = selectedAreas.contains(area);
-              return CheckboxListTile(
-                value: isSelected,
-                onChanged: (value) {
-                  setState(() {
-                    if (value == true) {
-                      selectedAreas.add(area);
-                    } else {
-                      selectedAreas.remove(area);
-                    }
-                  });
-                },
-                title: Text(area),
-              );
-            }).toList(),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                final prefs = await SharedPreferences.getInstance();
-                await prefs.setStringList('lifestyleAreas', selectedAreas);
-                ref.invalidate(userProfileProvider);
-                if (context.mounted) Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Lifestyle areas updated')),
+        builder: (context, setState) => categoriesAsync.when(
+          data: (areas) => AlertDialog(
+            title: const Text('Add Lifestyle Area'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: areas.map((area) {
+                final isSelected = selectedAreas.contains(area);
+                return CheckboxListTile(
+                  value: isSelected,
+                  onChanged: (value) {
+                    setState(() {
+                      if (value == true) {
+                        selectedAreas.add(area);
+                      } else {
+                        selectedAreas.remove(area);
+                      }
+                    });
+                  },
+                  title: Text(area),
                 );
-              },
-              child: const Text('Save'),
+              }).toList(),
             ),
-          ],
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setStringList('lifestyleAreas', selectedAreas);
+                  ref.invalidate(userProfileProvider);
+                  if (context.mounted) Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Lifestyle areas updated')),
+                  );
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          ),
+          loading: () => AlertDialog(
+            title: const Text('Loading...'),
+            content: const SizedBox(
+              height: 100,
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          ),
+          error: (error, stack) => AlertDialog(
+            title: const Text('Error'),
+            content: Text('Failed to load categories: $error'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
         ),
       ),
+    );
+  }
+
+  void _showDietModal(
+    BuildContext context,
+    String foodVibe,
+    List<String> recipes,
+    String? userId,
+    DateTime selectedDate,
+    WidgetRef ref,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppConstants.borderRadiusLarge)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.all(AppConstants.spacingMd),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Select Recipe',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              SizedBox(height: AppConstants.spacingSm),
+              Text(
+                foodVibe,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.grey.shade600,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              SizedBox(height: AppConstants.spacingMd),
+              if (recipes.isEmpty)
+                Padding(
+                  padding: EdgeInsets.symmetric(vertical: AppConstants.spacingMd),
+                  child: Text(
+                    'No recipes available',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                )
+              else
+                SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: recipes
+                        .map((recipe) => Padding(
+                          padding: EdgeInsets.only(bottom: AppConstants.spacingSm),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: () async {
+                                print('[DEBUG] Recipe tapped: $recipe, userId: $userId, date: $selectedDate');
+                                if (userId != null) {
+                                  final selectionsRepo = ref.read(dailySelectionsRepositoryProvider);
+                                  try {
+                                    print('[DEBUG] About to save recipe: $recipe');
+                                    await selectionsRepo.selectRecipe(userId, selectedDate, recipe.trim());
+                                    await Future.delayed(Duration(milliseconds: 100));
+                                    print('[DEBUG] Recipe saved, invalidating provider...');
+                                    if (context.mounted) {
+                                      ref.invalidate(dailySelectionsProvider(selectedDate));
+                                      print('[DEBUG] Provider invalidated, closing modal...');
+                                      Navigator.pop(context);
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text('✓ ${recipe.trim()} selected'),
+                                          duration: Duration(seconds: 2),
+                                        ),
+                                      );
+                                    }
+                                  } catch (e) {
+                                    print('[ERROR] Failed to save recipe: $e');
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('Error saving selection: $e')),
+                                      );
+                                    }
+                                  }
+                                }
+                              },
+                              borderRadius: BorderRadius.circular(AppConstants.borderRadiusSmall),
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: AppConstants.spacingMd,
+                                  vertical: AppConstants.spacingSm,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 24,
+                                      height: 24,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: Colors.grey.shade400,
+                                          width: 2,
+                                        ),
+                                      ),
+                                    ),
+                                    SizedBox(width: AppConstants.spacingMd),
+                                    Expanded(
+                                      child: Text(
+                                        recipe.trim(),
+                                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ))
+                        .toList(),
+                  ),
+                ),
+              SizedBox(height: AppConstants.spacingMd),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showWorkoutTypesModal(
+    BuildContext context,
+    String workoutMode,
+    List<String> workouts,
+    String? userId,
+    DateTime selectedDate,
+    WidgetRef ref,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppConstants.borderRadiusLarge)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.all(AppConstants.spacingMd),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Select Workout',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              SizedBox(height: AppConstants.spacingMd),
+              if (workouts.isEmpty)
+                Padding(
+                  padding: EdgeInsets.symmetric(vertical: AppConstants.spacingMd),
+                  child: Text(
+                    'No workout types available',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                )
+              else
+                SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: workouts
+                        .map((workout) => Padding(
+                          padding: EdgeInsets.only(bottom: AppConstants.spacingSm),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: () async {
+                                if (userId != null) {
+                                  final selectionsRepo = ref.read(dailySelectionsRepositoryProvider);
+                                  try {
+                                    await selectionsRepo.selectWorkout(userId, selectedDate, workout.trim());
+                                    await Future.delayed(Duration(milliseconds: 100));
+                                    if (context.mounted) {
+                                      ref.invalidate(dailySelectionsProvider(selectedDate));
+                                      Navigator.pop(context);
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text('✓ ${workout.trim()} selected'),
+                                          duration: Duration(seconds: 2),
+                                        ),
+                                      );
+                                    }
+                                  } catch (e) {
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('Error saving selection: $e')),
+                                      );
+                                    }
+                                  }
+                                }
+                              },
+                              borderRadius: BorderRadius.circular(AppConstants.borderRadiusSmall),
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: AppConstants.spacingMd,
+                                  vertical: AppConstants.spacingSm,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 24,
+                                      height: 24,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: Colors.grey.shade400,
+                                          width: 2,
+                                        ),
+                                      ),
+                                    ),
+                                    SizedBox(width: AppConstants.spacingMd),
+                                    Expanded(
+                                      child: Text(
+                                        workout.trim(),
+                                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ))
+                        .toList(),
+                  ),
+                ),
+              SizedBox(height: AppConstants.spacingMd),
+            ],
+          ),
+        );
+      },
     );
   }
 

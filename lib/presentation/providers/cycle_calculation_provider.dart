@@ -4,6 +4,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// Selected date for planner/daily view
 /// Defaults to today
-final selectedDateProvider = StateProvider<DateTime>((ref) {
-  return DateTime.now();
+final selectedDateProvider = NotifierProvider<_SelectedDateNotifier, DateTime>(() {
+  return _SelectedDateNotifier();
 });
+
+class _SelectedDateNotifier extends Notifier<DateTime> {
+  @override
+  DateTime build() {
+    return DateTime.now();
+  }
+
+  void setDate(DateTime date) {
+    state = date;
+  }
+
+  void setToToday() {
+    state = DateTime.now();
+  }
+}

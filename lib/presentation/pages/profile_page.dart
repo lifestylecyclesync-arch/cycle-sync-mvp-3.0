@@ -97,15 +97,15 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       // Profile Picture & Name Section
-                      _buildIdentitySection(context, profile),
+                      if (profile != null) _buildIdentitySection(context, profile),
                       const SizedBox(height: 32),
 
                       // My Cycle Section
-                      _buildCycleSection(context, profile),
+                      if (profile != null) _buildCycleSection(context, profile),
                       const SizedBox(height: 32),
 
                       // My Lifestyle Sync Section
-                      _buildLifestyleSection(context, profile),
+                      if (profile != null) _buildLifestyleSection(context, profile),
                       const SizedBox(height: 32),
                     ],
                   ),

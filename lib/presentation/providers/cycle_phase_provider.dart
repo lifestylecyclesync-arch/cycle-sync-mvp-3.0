@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cycle_sync_mvp_2/presentation/providers/user_profile_provider.dart';
+import 'package:cycle_sync_mvp_2/presentation/providers/guest_mode_provider.dart';
 
 enum CyclePhase {
   menstrual,
@@ -138,14 +140,44 @@ class AdaptiveTable {
 
 /// Provider to get the cycle phase information for a given date
 final cyclePhaseProvider = FutureProvider.family<PhaseInfo, DateTime>((ref, date) async {
-  final userProfile = await ref.watch(userProfileProvider.future);
+  final isGuest = ref.watch(guestModeProvider);
 
-  final cycleStartDate = userProfile.lastPeriodDate;
-  final cycleLength = userProfile.cycleLength;
-  final menstrualLength = userProfile.menstrualLength;
+  late DateTime cycleStartDate;
+  late int cycleLength;
+  late int menstrualLength;
 
-  // Calculate cycle day: (currentDate − lastPeriodDate) mod cycleLength + 1
-  final daysSinceCycleStart = date.difference(cycleStartDate).inDays;
+  if (isGuest) {
+    // Load from SharedPreferences in guest mode
+    final prefs = await SharedPreferences.getInstance();
+    final lastPeriodStr = prefs.getString('lastPeriodDate');
+    final cycleLen = prefs.getInt('cycleLength');
+    final menstrualLen = prefs.getInt('menstrualLength');
+
+    if (lastPeriodStr == null || cycleLen == null || menstrualLen == null) {
+      throw Exception('Guest mode: Cycle data not found. Please complete onboarding.');
+    }
+
+    cycleStartDate = DateTime.parse(lastPeriodStr);
+    cycleLength = cycleLen;
+    menstrualLength = menstrualLen;
+  } else {
+    // Load from Supabase user profile in authenticated mode
+    final userProfile = await ref.watch(userProfileProvider.future);
+
+    if (userProfile == null) {
+      throw Exception('User profile not found');
+    }
+
+    cycleStartDate = userProfile.lastPeriodDate;
+    cycleLength = userProfile.cycleLength;
+    menstrualLength = userProfile.menstrualLength;
+  }
+
+  // Normalize dates to midnight to avoid time zone issues
+  final normalizedDate = DateTime(date.year, date.month, date.day);
+  final normalizedCycleStart = DateTime(cycleStartDate.year, cycleStartDate.month, cycleStartDate.day);
+  
+  final daysSinceCycleStart = normalizedDate.difference(normalizedCycleStart).inDays;
   final cycleDay = (daysSinceCycleStart % cycleLength) + 1;
 
   // Calculate ovulation day: cycleLength − 14

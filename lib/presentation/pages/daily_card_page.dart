@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cycle_sync_mvp_2/core/constants/app_constants.dart';
 
 class DailyCardPage extends ConsumerWidget {
-  const DailyCardPage({Key? key}) : super(key: key);
+  const DailyCardPage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

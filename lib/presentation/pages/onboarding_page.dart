@@ -3,6 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cycle_sync_mvp_2/core/constants/app_constants.dart';
 import 'package:cycle_sync_mvp_2/presentation/providers/onboarding_provider.dart';
+import 'package:cycle_sync_mvp_2/presentation/providers/auth_provider.dart';
+import 'package:cycle_sync_mvp_2/presentation/providers/repositories_provider.dart';
+import 'package:cycle_sync_mvp_2/presentation/providers/guest_mode_provider.dart';
+import 'package:cycle_sync_mvp_2/presentation/pages/login_page.dart';
+import 'package:cycle_sync_mvp_2/presentation/pages/app_shell.dart';
 
 class OnboardingPage extends ConsumerStatefulWidget {
   const OnboardingPage({super.key});
@@ -42,6 +47,12 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
     Navigator.of(context).pushReplacementNamed('/home');
   }
 
+  void _goToSignup() {
+    // Set signup mode and proceed to cycle data screen
+    ref.read(signupModeProvider.notifier).setSignupMode(true);
+    _goToNext();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -55,7 +66,7 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
                 setState(() => _currentPage = index);
               },
               children: [
-                _WelcomeScreen(onGetStarted: _goToNext),
+                _WelcomeScreen(onGetStarted: _goToNext, onSignup: _goToSignup),
                 _CycleDataScreen(onNext: _goToNext),
                 _LifestyleScreen(onNext: _completedOnboarding),
               ],
@@ -71,8 +82,9 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
 /// Screen 1: Welcome
 class _WelcomeScreen extends StatefulWidget {
   final VoidCallback onGetStarted;
+  final VoidCallback onSignup;
 
-  const _WelcomeScreen({required this.onGetStarted});
+  const _WelcomeScreen({required this.onGetStarted, required this.onSignup});
 
   @override
   State<_WelcomeScreen> createState() => _WelcomeScreenState();
@@ -182,7 +194,11 @@ class _WelcomeScreenState extends State<_WelcomeScreen> with SingleTickerProvide
           SizedBox(height: AppConstants.spacingXl),
           Center(
             child: GestureDetector(
-              onTap: () => Navigator.of(context).pushReplacementNamed('/login'),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const LoginPage()),
+                );
+              },
               child: Text(
                 'I have an account',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -196,7 +212,7 @@ class _WelcomeScreenState extends State<_WelcomeScreen> with SingleTickerProvide
           Padding(
             padding: EdgeInsets.symmetric(horizontal: AppConstants.spacingLg),
             child: OutlinedButton(
-              onPressed: () => Navigator.of(context).pushReplacementNamed('/signup'),
+              onPressed: widget.onSignup,
               child: Padding(
                 padding: EdgeInsets.symmetric(
                   vertical: AppConstants.spacingMd,
@@ -501,7 +517,6 @@ class _LifestyleScreen extends ConsumerStatefulWidget {
 
 class _LifestyleScreenState extends ConsumerState<_LifestyleScreen> with SingleTickerProviderStateMixin {
   final List<String> selectedAreas = [];
-  static const allAreas = ['Nutrition', 'Fitness', 'Fasting'];
   late AnimationController _controller;
 
   @override
@@ -519,6 +534,47 @@ class _LifestyleScreenState extends ConsumerState<_LifestyleScreen> with SingleT
 
   @override
   Widget build(BuildContext context) {
+    final categoriesAsync = ref.watch(lifestyleCategoriesProvider);
+
+    return categoriesAsync.when(
+      data: (categories) => _buildCategoriesUI(context, categories),
+      loading: () => SingleChildScrollView(
+        child: Padding(
+          padding: EdgeInsets.all(AppConstants.spacingLg),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(height: AppConstants.spacingXxl),
+              const CircularProgressIndicator(),
+              SizedBox(height: AppConstants.spacingMd),
+              Text('Loading lifestyle options...'),
+            ],
+          ),
+        ),
+      ),
+      error: (error, stack) => SingleChildScrollView(
+        child: Padding(
+          padding: EdgeInsets.all(AppConstants.spacingLg),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(height: AppConstants.spacingXxl),
+              Text('Error loading categories. Using defaults...'),
+              SizedBox(height: AppConstants.spacingMd),
+              ElevatedButton(
+                onPressed: () {
+                  ref.invalidate(lifestyleCategoriesProvider);
+                },
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCategoriesUI(BuildContext context, List<String> allAreas) {
     return SingleChildScrollView(
       child: Padding(
         padding: EdgeInsets.all(AppConstants.spacingLg),
@@ -573,22 +629,131 @@ class _LifestyleScreenState extends ConsumerState<_LifestyleScreen> with SingleT
               child: ElevatedButton(
                 onPressed: () async {
                   try {
-                    // Save lifestyle areas and fasting preference
-                    final prefs = await SharedPreferences.getInstance();
-                    print('[OnboardingPage] Saving lifestyle areas: $selectedAreas');
-                    await prefs.setStringList('lifestyleAreas', selectedAreas);
-                    await prefs.setString('fastingPreference', 'Beginner');
+                    final isSignupMode = ref.read(signupModeProvider);
                     
-                    print('[OnboardingPage] Completing onboarding...');
-                    await ref.read(onboardingNotifierProvider.notifier).completeOnboarding();
-                    print('[OnboardingPage] Onboarding completed, invalidating provider');
-                    ref.invalidate(hasCompletedOnboardingProvider);
+                    // If in signup mode, show email/password dialog first
+                    if (isSignupMode) {
+                      if (!context.mounted) return;
+                      
+                      final emailController = TextEditingController();
+                      final passwordController = TextEditingController();
+                      
+                      final result = await showDialog<Map<String, String>>(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Create Account'),
+                          content: SingleChildScrollView(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                TextField(
+                                  controller: emailController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Email',
+                                    hintText: 'your@email.com',
+                                  ),
+                                  keyboardType: TextInputType.emailAddress,
+                                ),
+                                const SizedBox(height: 16),
+                                TextField(
+                                  controller: passwordController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Password',
+                                    hintText: 'At least 6 characters',
+                                  ),
+                                  obscureText: true,
+                                ),
+                              ],
+                            ),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('Cancel'),
+                            ),
+                            ElevatedButton(
+                              onPressed: () {
+                                if (emailController.text.isEmpty || passwordController.text.isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Please fill in all fields')),
+                                  );
+                                  return;
+                                }
+                                Navigator.pop(context, {
+                                  'email': emailController.text.trim(),
+                                  'password': passwordController.text,
+                                });
+                              },
+                              child: const Text('Sign Up'),
+                            ),
+                          ],
+                        ),
+                      );
+                      
+                      if (result == null) return; // User cancelled
+                      
+                      // Perform signup
+                      await ref.read(signUpProvider(
+                        (email: result['email']!, password: result['password']!),
+                      ).future);
+                      
+                      // Wait a moment for auth state to update
+                      await Future.delayed(const Duration(milliseconds: 500));
+                      
+                      // Get userId from auth
+                      final userId = ref.watch(userIdProvider);
+                      if (userId == null) {
+                        throw Exception('User not authenticated');
+                      }
+
+                      // Get cycle data from SharedPreferences
+                      final prefs = await SharedPreferences.getInstance();
+                      final cycleLength = prefs.getInt('cycleLength') ?? 28;
+                      final menstrualLength = prefs.getInt('menstrualLength') ?? 5;
+                      final lutealPhaseLength = prefs.getInt('lutealPhaseLength') ?? 14;
+                      final lastPeriodDateStr = prefs.getString('lastPeriodDate');
+                      
+                      if (lastPeriodDateStr == null) {
+                        throw Exception('Cycle data not found');
+                      }
+
+                      final lastPeriodDate = DateTime.parse(lastPeriodDateStr);
+                      final userName = prefs.getString('userName') ?? 'User';
+
+                      // Save profile to Supabase
+                      await ref.read(saveUserProfileProvider((
+                        name: userName,
+                        cycleLength: cycleLength,
+                        menstrualLength: menstrualLength,
+                        lutealPhaseLength: lutealPhaseLength,
+                        lastPeriodDate: lastPeriodDate,
+                        avatarBase64: null,
+                        fastingPreference: 'Beginner',
+                      )).future);
+
+                      // Save lifestyle areas to Supabase
+                      await ref.read(updateLifestyleAreasProvider(selectedAreas).future);
+
+                      // Mark onboarding as complete
+                      await ref.read(completeOnboardingProvider.future);
+                      ref.invalidate(hasCompletedOnboardingProvider);
+                      
+                      // Reset signup mode for next time
+                      ref.read(signupModeProvider.notifier).setSignupMode(false);
+                    } else {
+                      // Guest mode - save lifestyle areas and set the flag
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setStringList('lifestyleAreas', selectedAreas);
+                      await prefs.setBool('guest_mode', true); // Persist guest mode flag
+                      await ref.read(guestModeProvider.notifier).enableGuestMode();
+                    }
+                    
                     if (context.mounted) {
-                      print('[OnboardingPage] Navigating to /home');
-                      Navigator.of(context).pushReplacementNamed('/home');
+                      Navigator.of(context).pushReplacement(
+                        MaterialPageRoute(builder: (_) => const AppShell()),
+                      );
                     }
                   } catch (e) {
-                    print('[OnboardingPage] Error: $e');
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
@@ -614,21 +779,48 @@ class _LifestyleScreenState extends ConsumerState<_LifestyleScreen> with SingleT
               child: GestureDetector(
                 onTap: () async {
                   try {
-                    // Save lifestyle areas and fasting preference even when skipping
+                    // Get userId from auth
+                    final userId = ref.watch(userIdProvider);
+                    if (userId == null) {
+                      throw Exception('User not authenticated');
+                    }
+
+                    // Get cycle data from SharedPreferences
                     final prefs = await SharedPreferences.getInstance();
-                    await prefs.setStringList('lifestyleAreas', selectedAreas);
-                    await prefs.setString('fastingPreference', 'Beginner');
+                    final cycleLength = prefs.getInt('cycleLength') ?? 28;
+                    final menstrualLength = prefs.getInt('menstrualLength') ?? 5;
+                    final lutealPhaseLength = prefs.getInt('lutealPhaseLength') ?? 14;
+                    final lastPeriodDateStr = prefs.getString('lastPeriodDate');
                     
-                    print('[OnboardingPage] Completing onboarding (Skip)...');
-                    await ref.read(onboardingNotifierProvider.notifier).completeOnboarding();
-                    print('[OnboardingPage] Onboarding completed, invalidating provider');
+                    if (lastPeriodDateStr == null) {
+                      throw Exception('Cycle data not found');
+                    }
+
+                    final lastPeriodDate = DateTime.parse(lastPeriodDateStr);
+                    final userName = prefs.getString('userName') ?? 'User';
+
+                    // Save profile to Supabase
+                    await ref.read(saveUserProfileProvider((
+                      name: userName,
+                      cycleLength: cycleLength,
+                      menstrualLength: menstrualLength,
+                      lutealPhaseLength: lutealPhaseLength,
+                      lastPeriodDate: lastPeriodDate,
+                      avatarBase64: null,
+                      fastingPreference: 'Beginner',
+                    )).future);
+
+                    // Save lifestyle areas to Supabase
+                    await ref.read(updateLifestyleAreasProvider(selectedAreas).future);
+
+                    // Mark onboarding as complete
+                    await ref.read(completeOnboardingProvider.future);
                     ref.invalidate(hasCompletedOnboardingProvider);
+                    
                     if (context.mounted) {
-                      print('[OnboardingPage] Navigating to /home');
-                      Navigator.of(context).pushReplacementNamed('/home');
+                      Navigator.of(context).pushReplacementNamed('/');
                     }
                   } catch (e) {
-                    print('[OnboardingPage] Error: $e');
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(

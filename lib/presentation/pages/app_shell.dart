@@ -15,7 +15,7 @@ class AppShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final currentTab = ref.watch(bottomNavNotifierProvider);
+    final currentTab = ref.watch(bottomNavTabProvider);
 
     final body = switch (currentTab) {
       BottomNavTab.dashboard => const DashboardPage(),
@@ -48,7 +48,7 @@ class AppShell extends ConsumerWidget {
           HapticFeedback.lightImpact();
           
           ref
-              .read(bottomNavNotifierProvider.notifier)
+              .read(bottomNavTabProvider.notifier)
               .selectTab(BottomNavTab.values[index]);
         },
         type: BottomNavigationBarType.fixed,
@@ -103,6 +103,13 @@ class AppShell extends ConsumerWidget {
     final userProfileAsync = ref.watch(userProfileProvider);
     
     userProfileAsync.whenData((profile) {
+      if (profile == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please complete your profile first')),
+        );
+        return;
+      }
+      
       showModalBottomSheet(
         context: context,
         isScrollControlled: true,

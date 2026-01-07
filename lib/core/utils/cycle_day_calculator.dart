@@ -14,7 +14,10 @@ class CycleDayCalculator {
     DateTime? currentDate,
   }) {
     final today = currentDate ?? DateTime.now();
-    final daysDiff = today.difference(lastPeriodDate).inDays;
+    // Normalize to midnight to avoid time zone/time-of-day issues
+    final normalizedToday = DateTime(today.year, today.month, today.day);
+    final normalizedLastPeriod = DateTime(lastPeriodDate.year, lastPeriodDate.month, lastPeriodDate.day);
+    final daysDiff = normalizedToday.difference(normalizedLastPeriod).inDays;
     return (daysDiff % cycleLength) + 1;
   }
 

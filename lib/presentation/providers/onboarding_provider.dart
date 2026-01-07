@@ -29,27 +29,16 @@ final resetOnboardingProvider = FutureProvider<void>((ref) async {
 });
 
 /// Provider to mark onboarding as completed
-final onboardingNotifierProvider = StateNotifierProvider<OnboardingNotifier, bool>((ref) {
-  return OnboardingNotifier(ref);
-});
-
-class OnboardingNotifier extends StateNotifier<bool> {
-  final Ref ref;
-  
-  OnboardingNotifier(this.ref) : super(false);
-
-  Future<void> completeOnboarding() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('onboarding_completed', true);
-      print('[OnboardingNotifier] Marked onboarding_completed: true');
-      
-      // Invalidate user profile provider to reload saved data
-      ref.invalidate(userProfileProvider);
-      
-      state = true;
-    } catch (e) {
-      print('[OnboardingNotifier] Error completing onboarding: $e');
-    }
+final completeOnboardingProvider = FutureProvider<void>((ref) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('onboarding_completed', true);
+    print('[OnboardingProvider] Marked onboarding_completed: true');
+    
+    // Invalidate user profile provider to reload saved data
+    ref.invalidate(userProfileProvider);
+    ref.invalidate(hasCompletedOnboardingProvider);
+  } catch (e) {
+    print('[OnboardingProvider] Error completing onboarding: $e');
   }
-}
+});

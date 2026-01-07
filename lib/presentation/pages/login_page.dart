@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cycle_sync_mvp_2/core/constants/app_constants.dart';
+import 'package:cycle_sync_mvp_2/presentation/providers/auth_provider.dart';
+import 'package:cycle_sync_mvp_2/presentation/providers/guest_mode_provider.dart';
+import 'package:cycle_sync_mvp_2/presentation/providers/repositories_provider.dart';
 
 class LoginPage extends ConsumerStatefulWidget {
   const LoginPage({super.key});
@@ -34,16 +38,36 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     });
 
     try {
-      // final authService = ref.read(authServiceProvider);
-      // await authService.signIn(
-      //   email: _emailController.text.trim(),
-      //   password: _passwordController.text,
-      // );
+      await ref.read(signInProvider(
+        (email: _emailController.text.trim(), password: _passwordController.text),
+      ).future);
 
+      // Reset guest mode after successful login
+      await ref.read(guestModeProvider.notifier).disableGuestMode();
+      
+      // Clear guest mode from SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('guest_mode', false);
+      
+      // Invalidate user profile provider to refresh data for the newly logged-in user
+      ref.invalidate(userProfileProvider);
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Login disabled for MVP')),
+          const SnackBar(content: Text('Login successful!')),
         );
+        
+        // Wait for state to settle, then pop back
+        // The key is to pop BOTH LoginPage AND OnboardingPage from the stack
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (mounted) {
+          // Pop all routes and let MyApp rebuild with the new auth state
+          Navigator.of(context).popUntil((route) => route.isFirst);
+          // Pop one more time to remove OnboardingPage  
+          if (Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+          }
+        }
       }
     } catch (e) {
       setState(() => _error = e.toString().replaceAll('Exception: ', ''));

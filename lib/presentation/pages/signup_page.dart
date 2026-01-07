@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cycle_sync_mvp_2/core/constants/app_constants.dart';
+import 'package:cycle_sync_mvp_2/presentation/providers/auth_provider.dart';
 
 class SignupPage extends ConsumerStatefulWidget {
   const SignupPage({super.key});
@@ -27,8 +28,7 @@ class _SignupPageState extends ConsumerState<SignupPage> {
   }
 
   Future<void> _handleSignup() async {
-    if (_nameController.text.isEmpty ||
-        _emailController.text.isEmpty ||
+    if (_emailController.text.isEmpty ||
         _passwordController.text.isEmpty ||
         _confirmPasswordController.text.isEmpty) {
       setState(() => _error = 'Please fill in all fields');
@@ -51,18 +51,20 @@ class _SignupPageState extends ConsumerState<SignupPage> {
     });
 
     try {
-      // final authService = ref.read(authServiceProvider);
-      // await authService.signUp(
-      //   email: _emailController.text.trim(),
-      //   password: _passwordController.text,
-      //   name: _nameController.text.trim(),
-      // );
+      await ref.read(signUpProvider(
+        (email: _emailController.text.trim(), password: _passwordController.text),
+      ).future);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Sign up disabled for MVP')),
+          const SnackBar(content: Text('Account created successfully! Proceeding to onboarding...')),
         );
-        // Navigator.of(context).pushReplacementNamed('/login');
+        // Navigate to onboarding after successful signup
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted) {
+            Navigator.of(context).pushReplacementNamed('/onboarding');
+          }
+        });
       }
     } catch (e) {
       setState(() => _error = e.toString().replaceAll('Exception: ', ''));
@@ -99,19 +101,6 @@ class _SignupPageState extends ConsumerState<SignupPage> {
                 textAlign: TextAlign.center,
               ),
               SizedBox(height: AppConstants.spacingXxl),
-              TextField(
-                controller: _nameController,
-                decoration: InputDecoration(
-                  labelText: 'Full Name',
-                  hintText: 'Enter your full name',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppConstants.borderRadiusMedium),
-                  ),
-                  contentPadding: EdgeInsets.all(AppConstants.spacingMd),
-                ),
-                enabled: !_isLoading,
-              ),
-              SizedBox(height: AppConstants.spacingMd),
               TextField(
                 controller: _emailController,
                 decoration: InputDecoration(
