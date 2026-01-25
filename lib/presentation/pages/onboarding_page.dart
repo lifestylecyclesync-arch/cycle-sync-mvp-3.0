@@ -737,6 +737,7 @@ class _LifestyleScreenState extends ConsumerState<_LifestyleScreen> with SingleT
                       // Mark onboarding as complete
                       await ref.read(completeOnboardingProvider.future);
                       ref.invalidate(hasCompletedOnboardingProvider);
+                      ref.invalidate(userProfileProvider);  // Refetch profile with lifestyle areas
                       
                       // Reset signup mode for next time
                       ref.read(signupModeProvider.notifier).setSignupMode(false);
@@ -816,6 +817,7 @@ class _LifestyleScreenState extends ConsumerState<_LifestyleScreen> with SingleT
                     // Mark onboarding as complete
                     await ref.read(completeOnboardingProvider.future);
                     ref.invalidate(hasCompletedOnboardingProvider);
+                    ref.invalidate(userProfileProvider);  // Refetch profile with lifestyle areas
                     
                     if (context.mounted) {
                       Navigator.of(context).pushReplacementNamed('/');

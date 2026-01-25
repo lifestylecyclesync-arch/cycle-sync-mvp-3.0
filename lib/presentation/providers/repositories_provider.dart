@@ -13,6 +13,32 @@ final sharedPreferencesProvider = FutureProvider<SharedPreferences>((ref) async 
   return await SharedPreferences.getInstance();
 });
 
+/// Simple in-memory cache for lifestyle areas
+/// Uses a mutable reference to store cached data
+class _LifestyleAreasCache {
+  List<String> _areas = [];
+  
+  List<String> get areas => _areas;
+  
+  void update(List<String> areas) {
+    _areas = areas;
+  }
+}
+
+final _lifestyleAreasCache = _LifestyleAreasCache();
+
+/// Cache lifestyle areas for instant access without network calls
+/// This enables synchronous reads from the cache layer
+final lifestyleAreasCacheProvider = Provider<List<String>>((ref) {
+  return _lifestyleAreasCache.areas;
+});
+
+/// Get cached lifestyle areas synchronously (no waiting for network)
+/// Returns empty list if not yet loaded from network
+final cachedLifestyleAreasProvider = Provider<List<String>>((ref) {
+  return _lifestyleAreasCache.areas;
+});
+
 /// Provide Supabase client
 final supabaseClientProvider = Provider((ref) {
   return SupabaseConfig.client;
@@ -48,6 +74,8 @@ final dailySelectionsRepositoryProvider = Provider<DailySelectionsRepository>((r
 });
 
 /// Get user profile from Supabase
+/// NOTE: Lifestyle areas are fetched separately via lifestyleAreasProvider
+/// This keeps the profile focused on cycle data only
 final userProfileProvider = FutureProvider<UserProfile?>((ref) async {
   final userId = ref.watch(userIdProvider);
   if (userId == null) return null;
@@ -58,7 +86,8 @@ final userProfileProvider = FutureProvider<UserProfile?>((ref) async {
   return await repository.getUserProfile(userId);
 });
 
-/// Get lifestyle areas from Supabase
+/// Get lifestyle areas from Supabase with unified cache layer
+/// Updates the cache immediately, so consumers can watch cachedLifestyleAreasProvider for instant data
 final lifestyleAreasProvider = FutureProvider<List<String>>((ref) async {
   final userId = ref.watch(userIdProvider);
   if (userId == null) return [];
@@ -66,7 +95,16 @@ final lifestyleAreasProvider = FutureProvider<List<String>>((ref) async {
   final repository = ref.watch(lifestyleAreasRepositoryProvider);
   if (repository == null) return [];
 
-  return await repository.getLifestyleAreas(userId);
+  try {
+    final areas = await repository.getLifestyleAreas(userId);
+    // Update unified cache layer immediately
+    _lifestyleAreasCache.update(areas);
+    return areas;
+  } catch (e) {
+    print('[Error] Failed to fetch lifestyle areas: $e');
+    // On error, return what's in cache
+    return _lifestyleAreasCache.areas;
+  }
 });
 
 /// Get available lifestyle categories from Supabase reference table
@@ -169,14 +207,23 @@ Map<String, dynamic> _getDefaultPhaseRecommendations(String phaseName) {
       'workout_mode': 'Strength & Resistance',
       'workout_types': 'Heavy lifting • Strength Training • Strength Reformer Pilates',
     },
+    'Early Luteal': {
+      'phase_name': 'Early Luteal',
+      'lifestyle_phase': 'Power Up',
+      'hormonal_state': 'Declining E, Rising P',
+      'food_vibe': 'Carb-Boost Hormone Fuel',
+      'food_recipes': 'Turkey & Vegetable Stir-Fry • Lentil & Carrot Curry • Cauliflower Rice Buddha Bowl • Chickpea & Spinach Sauté • Grilled Chicken with Brussels Sprouts • Tempeh & Broccoli Stir-Fry',
+      'workout_mode': 'Moderate to High-Intensity Workout',
+      'workout_types': 'Spin Class • Strength Training • Endurance Runs • Circuits • Power yoga • Reformer Pilates • Cardio',
+    },
     'Luteal': {
       'phase_name': 'Luteal',
-      'lifestyle_phase': 'Power Up / Cozy Care',
-      'hormonal_state': 'Declining E, High P',
+      'lifestyle_phase': 'Cozy Care',
+      'hormonal_state': 'Low E, High P',
       'food_vibe': 'Carb-Boost Hormone Fuel',
       'food_recipes': 'Turkey & Vegetable Stir-Fry • Lentil & Carrot Curry • Cauliflower Rice Buddha Bowl • Chickpea & Spinach Sauté • Grilled Chicken with Brussels Sprouts • Tempeh & Broccoli Stir-Fry',
       'workout_mode': 'Moderate to Low-Impact Strength',
-      'workout_types': 'Spin Class • Strength Training • Endurance Runs • Circuits • Power yoga • Reformer Pilates • Hot Girl Walk • Low-Impact Strength Training',
+      'workout_types': 'Hot Girl Walk • Low-Impact Strength Training • Yoga • Mat Pilates • Foam rolling • Restorative Pilates • Gentle Stretching',
     },
   };
   
@@ -249,6 +296,8 @@ final updateLifestyleAreasProvider = FutureProvider.family<void, List<String>>((
   }
 
   await repository.updateLifestyleAreas(userId, areas);
+  // Update unified cache layer
+  _lifestyleAreasCache.update(areas);
 });
 
 /// Add lifestyle area provider
@@ -261,6 +310,9 @@ final addLifestyleAreaProvider = FutureProvider.family<void, String>((ref, area)
   }
 
   await repository.addLifestyleArea(userId, area);
+  // Update unified cache layer
+  final updatedAreas = [..._lifestyleAreasCache.areas, area];
+  _lifestyleAreasCache.update(updatedAreas);
 });
 
 /// Remove lifestyle area provider
@@ -273,6 +325,9 @@ final removeLifestyleAreaProvider = FutureProvider.family<void, String>((ref, ar
   }
 
   await repository.removeLifestyleArea(userId, area);
+  // Update unified cache layer
+  final updatedAreas = _lifestyleAreasCache.areas.where((a) => a != area).toList();
+  _lifestyleAreasCache.update(updatedAreas);
 });
 
 typedef SaveNoteParams = ({DateTime date, String noteText});
@@ -300,3 +355,27 @@ final deleteDailyNoteProvider = FutureProvider.family<void, DateTime>((ref, date
 
   await repository.deleteNote(userId, date);
 });
+
+/// Provider for lifestyle areas display order preference
+/// Stores and retrieves the user's preferred order for lifestyle area modules
+final lifestyleAreasOrderProvider = FutureProvider<List<String>>((ref) async {
+  final prefs = await ref.watch(sharedPreferencesProvider.future);
+  const String orderPreferenceKey = 'lifestyle_areas_order';
+  
+  final order = prefs.getStringList(orderPreferenceKey);
+  if (order != null && order.isNotEmpty) {
+    return order;
+  }
+  // Default order if not set
+  return ['Nutrition', 'Fitness', 'Fasting'];
+});
+
+/// Mutation provider to save lifestyle areas order
+final saveLifestyleAreasOrderProvider = FutureProvider.family<void, List<String>>((ref, newOrder) async {
+  final prefs = await ref.watch(sharedPreferencesProvider.future);
+  const String orderPreferenceKey = 'lifestyle_areas_order';
+  
+  await prefs.setStringList(orderPreferenceKey, newOrder);
+  print('[LifestyleAreasOrder] Order saved: $newOrder');
+});
+

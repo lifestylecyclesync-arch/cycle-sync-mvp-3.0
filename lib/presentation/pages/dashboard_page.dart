@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cycle_sync_mvp_2/core/constants/app_constants.dart';
 import 'package:cycle_sync_mvp_2/core/logger.dart';
 import 'package:cycle_sync_mvp_2/presentation/providers/repositories_provider.dart';
@@ -15,6 +15,9 @@ class DashboardPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final isGuest = ref.watch(guestModeProvider);
     final userProfile = ref.watch(userProfileProvider);
+    final lifestyleAreas = ref.watch(lifestyleAreasProvider);
+    // Watch cached data for instant display
+    final cachedLifestyleAreas = ref.watch(cachedLifestyleAreasProvider);
 
     return Scaffold(
       backgroundColor: Colors.purple.shade50,
@@ -23,11 +26,11 @@ class DashboardPage extends ConsumerWidget {
         backgroundColor: Colors.transparent,
         toolbarHeight: 0,
       ),
-      body: isGuest ? _buildGuestMode(context, ref) : _buildAuthenticatedMode(context, userProfile),
+      body: isGuest ? _buildGuestMode(context, ref) : _buildAuthenticatedMode(context, userProfile, lifestyleAreas, cachedLifestyleAreas),
     );
   }
 
-  Widget _buildAuthenticatedMode(BuildContext context, AsyncValue userProfile) {
+  Widget _buildAuthenticatedMode(BuildContext context, AsyncValue userProfile, AsyncValue lifestyleAreas, List<String> cachedLifestyleAreas) {
     AppLogger.info('DashboardPage._buildAuthenticatedMode called with userProfile state');
     return userProfile.when(
       data: (profile) {
@@ -39,38 +42,89 @@ class DashboardPage extends ConsumerWidget {
           );
         }
         AppLogger.info('DashboardPage: profile loaded successfully: ${(profile as UserProfile).name}');
-        return Column(
-          children: [
-            // Note: _buildHeader uses ref, so it needs to be called from build context
-            Consumer(
-              builder: (context, ref, _) => _buildHeader(context, ref),
-            ),
-            if (profile.lifestyleAreas.isEmpty)
-            Expanded(
-              child: Center(
-                child: Padding(
-                  padding: EdgeInsets.all(AppConstants.spacingLg),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        'Add Nutrition, Fitness, or Fasting to get personalized tips.',
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodyLarge,
+        
+        return lifestyleAreas.when(
+          data: (areas) {
+            final isEmpty = (areas ?? []).isEmpty;
+            return Column(
+              children: [
+                // Note: _buildHeader uses ref, so it needs to be called from build context
+                Consumer(
+                  builder: (context, ref, _) => _buildHeader(context, ref),
+                ),
+                if (isEmpty)
+                Expanded(
+                  child: Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(AppConstants.spacingLg),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'Add Nutrition, Fitness, or Fasting to get personalized tips.',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodyLarge,
+                          ),
+                          SizedBox(height: AppConstants.spacingXl),
+                          Consumer(
+                            builder: (context, ref, _) {
+                              return ElevatedButton(
+                                onPressed: () {
+                                  // Immediate haptic feedback for instant response
+                                  HapticFeedback.lightImpact();
+                                  
+                                  // Get current lifestyle areas from provider
+                                  final currentAreas = ref.read(cachedLifestyleAreasProvider);
+                                  _showAddLifestyleAreaModal(context, ref, currentAreas);
+                                },
+                                child: const Text('Update lifestyle areas'),
+                              );
+                            },
+                          ),
+                        ],
                       ),
-                      SizedBox(height: AppConstants.spacingXl),
-                      ElevatedButton(
-                        onPressed: () {
-                          // Navigate to add lifestyle areas
-                        },
-                        child: const Text('Add lifestyle areas'),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
-            ),
-          ],
+              ],
+            );
+          },
+          loading: () {
+            // Show cached data while loading
+            if (cachedLifestyleAreas.isNotEmpty) {
+              return Column(
+                children: [
+                  Consumer(
+                    builder: (context, ref, _) => _buildHeader(context, ref),
+                  ),
+                  Expanded(
+                    child: Center(
+                      child: Text('Refreshing...', style: Theme.of(context).textTheme.bodyMedium),
+                    ),
+                  ),
+                ],
+              );
+            }
+            return const Center(child: CircularProgressIndicator());
+          },
+          error: (err, stack) {
+            // Show cached data on error
+            if (cachedLifestyleAreas.isNotEmpty) {
+              return Column(
+                children: [
+                  Consumer(
+                    builder: (context, ref, _) => _buildHeader(context, ref),
+                  ),
+                  Expanded(
+                    child: Center(
+                      child: Text('Connection error', style: Theme.of(context).textTheme.bodyMedium),
+                    ),
+                  ),
+                ],
+              );
+            }
+            return Center(child: Text('Error: $err'));
+          },
         );
       },
       loading: () {
@@ -87,14 +141,9 @@ class DashboardPage extends ConsumerWidget {
   }
 
   Widget _buildGuestMode(BuildContext context, WidgetRef ref) {
-    return FutureBuilder<SharedPreferences>(
-      future: SharedPreferences.getInstance(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        final prefs = snapshot.data!;
+    // Use provider instead of FutureBuilder to avoid rebuilding on every access
+    return ref.watch(sharedPreferencesProvider).when(
+      data: (prefs) {
         final userName = prefs.getString('userName') ?? 'Guest User';
         final cycleLength = prefs.getInt('cycleLength') ?? 28;
         final lastPeriodDateStr = prefs.getString('lastPeriodDate');
@@ -173,6 +222,8 @@ class DashboardPage extends ConsumerWidget {
           ],
         );
       },
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (err, stack) => Center(child: Text('Error: $err')),
     );
   }
 
@@ -216,6 +267,112 @@ class DashboardPage extends ConsumerWidget {
         color: Colors.white,
         child: Text('Error: $err'),
       ),
+    );
+  }
+
+  void _showAddLifestyleAreaModal(BuildContext context, WidgetRef ref, List<String> initialAreas) {
+    final List<String> availableAreas = [
+      'Work',
+      'Exercise',
+      'Social',
+      'Sleep',
+      'Stress',
+      'Mood',
+      'Energy',
+      'Health',
+      'Family',
+      'Productivity',
+      'Travel',
+      'Hobby',
+    ];
+
+    List<String> selectedAreas = List.from(initialAreas);
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            // isSaving is managed via setState
+            return AlertDialog(
+              title: const Text('Update Lifestyle Areas'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: availableAreas.map((area) {
+                    return CheckboxListTile(
+                      title: Text(area),
+                      value: selectedAreas.contains(area),
+                      onChanged: (bool? checked) {
+                        // Instant haptic feedback on tap
+                        HapticFeedback.selectionClick();
+                        
+                        setState(() {
+                          if (checked == true) {
+                            if (!selectedAreas.contains(area)) {
+                              selectedAreas.add(area);
+                            }
+                          } else {
+                            selectedAreas.removeWhere((a) => a == area);
+                          }
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: isSaving ? null : () {
+                    // Instant haptic feedback
+                    HapticFeedback.mediumImpact();
+                    
+                    setState(() {
+                      isSaving = true;
+                    });
+                    
+                    // Invalidate profile IMMEDIATELY for instant UI response
+                    ref.invalidate(userProfileProvider);
+                    
+                    // Close dialog immediately - don't wait for saves
+                    if (context.mounted) {
+                      Navigator.pop(context);
+                    }
+                    
+                    // Background save to Supabase - non-blocking
+                    ref.read(updateLifestyleAreasProvider(selectedAreas).future)
+                      .then((_) => print('[Dashboard] Supabase saved'))
+                      .catchError((e) => print('[Dashboard] Supabase error: $e'));
+                    
+                    // Show confirmation
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('✓ Lifestyle areas updated'),
+                          duration: Duration(seconds: 1),
+                        ),
+                      );
+                    }
+                  },
+                  child: isSaving 
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 }

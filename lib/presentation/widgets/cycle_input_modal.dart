@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cycle_sync_mvp_2/core/constants/app_constants.dart';
-import 'package:cycle_sync_mvp_2/presentation/providers/user_profile_provider.dart';
+import 'package:cycle_sync_mvp_2/presentation/providers/repositories_provider.dart';
 
 class CycleInputModal extends ConsumerStatefulWidget {
   final int cycleLength;
@@ -53,13 +52,30 @@ class _CycleInputModalState extends ConsumerState<CycleInputModal> {
 
   Future<void> _saveChanges() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      
-      // Save to SharedPreferences
-      await prefs.setInt('cycleLength', _cycleLength);
-      await prefs.setInt('menstrualLength', _menstrualLength);
-      await prefs.setString('lastPeriodDate', _lastPeriodDate.toIso8601String());
-      await prefs.setInt('lutealPhaseLength', _lutealPhaseLength);
+      // Get current user profile for required fields (id, name, etc)
+      final userProfile = ref.read(userProfileProvider).maybeWhen(
+        data: (profile) => profile,
+        orElse: () => null,
+      );
+      if (userProfile == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('User profile not found.')),
+          );
+        }
+        return;
+      }
+
+      // Save to Supabase via provider
+      await ref.read(saveUserProfileProvider((
+        name: userProfile.name,
+        cycleLength: _cycleLength,
+        menstrualLength: _menstrualLength,
+        lutealPhaseLength: _lutealPhaseLength,
+        lastPeriodDate: _lastPeriodDate,
+        avatarBase64: null,
+        fastingPreference: userProfile.fastingPreference,
+      )).future);
 
       // Invalidate the userProfileProvider to trigger recalculation
       ref.invalidate(userProfileProvider);

@@ -199,11 +199,17 @@ final cyclePhaseProvider = FutureProvider.family<PhaseInfo, DateTime>((ref, date
     colorCode = '#FF6B9D'; // Red/Pink
     startDay = 1;
     endDay = menstrualLength;
-  } else if (cycleDay > menstrualLength && cycleDay < ovulationDay - 1) {
+  } else if (cycleDay > menstrualLength && cycleDay <= menstrualLength + 5) {
     phase = CyclePhase.follicular;
-    displayName = 'Follicular';
-    colorCode = '#FFB347'; // Orange
+    displayName = 'Early Follicular';
+    colorCode = '#FFD580'; // Light Orange
     startDay = menstrualLength + 1;
+    endDay = menstrualLength + 5;
+  } else if (cycleDay > menstrualLength + 5 && cycleDay < ovulationDay - 1) {
+    phase = CyclePhase.follicular;
+    displayName = 'Late Follicular';
+    colorCode = '#FFA500'; // Dark Orange
+    startDay = menstrualLength + 6;
     endDay = ovulationDay - 2;
   } else if (cycleDay >= ovulationDay - 1 && cycleDay <= ovulationDay + 1) {
     phase = CyclePhase.ovulation;
@@ -211,11 +217,17 @@ final cyclePhaseProvider = FutureProvider.family<PhaseInfo, DateTime>((ref, date
     colorCode = '#87CEEB'; // Sky Blue
     startDay = ovulationDay - 1;
     endDay = ovulationDay + 1;
+  } else if (cycleDay >= ovulationDay + 2 && cycleDay <= ovulationDay + 5) {
+    phase = CyclePhase.luteal;
+    displayName = 'Early Luteal';
+    colorCode = '#BA55D3'; // Orchid
+    startDay = ovulationDay + 2;
+    endDay = ovulationDay + 5;
   } else {
     phase = CyclePhase.luteal;
     displayName = 'Luteal';
-    colorCode = '#DDA0DD'; // Plum
-    startDay = ovulationDay + 2;
+    colorCode = '#9370DB'; // Medium Purple
+    startDay = ovulationDay + 6;
     endDay = cycleLength;
   }
 

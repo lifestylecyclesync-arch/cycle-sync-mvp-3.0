@@ -166,23 +166,9 @@ class UserProfileRepository {
   }
 
   /// Map Supabase row to UserProfile
+  /// Note: Lifestyle areas are fetched separately via lifestyleAreasProvider
+  /// This keeps the profile focused on cycle data only
   Future<UserProfile> _mapToUserProfile(Map<String, dynamic> row, String userId) async {
-    // Fetch lifestyle areas for this user
-    List<String> lifestyleAreas = [];
-    try {
-      final areasResponse = await _supabaseClient
-          .from('lifestyle_areas')
-          .select('area_name')
-          .eq('user_id', userId);
-      
-      lifestyleAreas = (areasResponse as List)
-          .map((item) => item['area_name'] as String)
-          .toList();
-    } catch (e) {
-      AppLogger.error('Error fetching lifestyle areas', e, StackTrace.current);
-      // Continue with empty list if fetch fails
-    }
-
     return UserProfile(
       id: userId,
       name: row['name'] ?? '',
@@ -190,7 +176,6 @@ class UserProfileRepository {
       menstrualLength: row['menstrual_length'] ?? 5,
       lutealPhaseLength: row['luteal_phase_length'] ?? 14,
       lastPeriodDate: DateTime.parse(row['last_period_date']),
-      lifestyleAreas: lifestyleAreas,
       fastingPreference: row['fasting_preference'] ?? 'Beginner',
       createdAt: DateTime.parse(row['created_at']),
       updatedAt: DateTime.parse(row['updated_at']),
@@ -207,8 +192,7 @@ class UserProfileRepository {
       "menstrualLength": ${profile.menstrualLength},
       "lutealPhaseLength": ${profile.lutealPhaseLength},
       "lastPeriodDate": "${profile.lastPeriodDate.toIso8601String()}",
-      "lifestyleAreas": [],
-      "fastingPreference": "${profile.fastingPreference}",
+      "fasting_preference": "${profile.fastingPreference}",
       "createdAt": "${profile.createdAt.toIso8601String()}",
       "updatedAt": "${profile.updatedAt.toIso8601String()}"
     }
@@ -225,8 +209,7 @@ class UserProfileRepository {
       menstrualLength: int.parse(_extractValue(map, 'menstrualLength')),
       lutealPhaseLength: int.parse(_extractValue(map, 'lutealPhaseLength')),
       lastPeriodDate: DateTime.parse(_extractValue(map, 'lastPeriodDate')),
-      lifestyleAreas: [],
-      fastingPreference: _extractValue(map, 'fastingPreference'),
+      fastingPreference: _extractValue(map, 'fasting_preference'),
       createdAt: DateTime.parse(_extractValue(map, 'createdAt')),
       updatedAt: DateTime.parse(_extractValue(map, 'updatedAt')),
     );

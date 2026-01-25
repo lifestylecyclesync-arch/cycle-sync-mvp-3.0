@@ -12,15 +12,18 @@ class LifestyleAreasRepository {
   /// Get all lifestyle areas for a user
   Future<List<String>> getLifestyleAreas(String userId) async {
     try {
+      print('[LifestyleAreasRepository] getLifestyleAreas called for user: $userId');
       final response = await _supabaseClient
           .from('lifestyle_areas')
           .select('area_name')
           .eq('user_id', userId);
 
+      print('[LifestyleAreasRepository] Response from Supabase: $response');
       final areas = List<String>.from(
         response.map((row) => row['area_name'] as String),
       );
 
+      print('[LifestyleAreasRepository] Mapped areas: $areas');
       // Cache locally
       await _cacheLifestyleAreas(areas);
       return areas;
@@ -42,6 +45,13 @@ class LifestyleAreasRepository {
           });
 
       AppLogger.info('Lifestyle area added: $areaName');
+      
+      // Update local cache with new area
+      final cachedAreas = _getCachedLifestyleAreas();
+      if (!cachedAreas.contains(areaName)) {
+        cachedAreas.add(areaName);
+        await _cacheLifestyleAreas(cachedAreas);
+      }
     } catch (e) {
       if (e.toString().contains('duplicate')) {
         AppLogger.info('Lifestyle area already exists: $areaName');
@@ -62,6 +72,11 @@ class LifestyleAreasRepository {
           .eq('area_name', areaName);
 
       AppLogger.info('Lifestyle area removed: $areaName');
+      
+      // Update local cache by removing the area
+      final cachedAreas = _getCachedLifestyleAreas();
+      cachedAreas.remove(areaName);
+      await _cacheLifestyleAreas(cachedAreas);
     } catch (e) {
       AppLogger.error('Error removing lifestyle area', e, StackTrace.current);
       rethrow;
@@ -71,26 +86,34 @@ class LifestyleAreasRepository {
   /// Update lifestyle areas (replace all)
   Future<void> updateLifestyleAreas(String userId, List<String> areas) async {
     try {
+      print('[LifestyleAreasRepository] updateLifestyleAreas called for user: $userId');
+      print('[LifestyleAreasRepository] Areas to save: $areas');
+      
       // Delete all existing areas for this user
       await _supabaseClient
           .from('lifestyle_areas')
           .delete()
           .eq('user_id', userId);
 
-      // Insert new areas
-      for (final area in areas) {
+      // Batch insert all areas in a single call (more efficient)
+      if (areas.isNotEmpty) {
+        final insertsData = areas
+            .map((area) => {
+                  'user_id': userId,
+                  'area_name': area,
+                })
+            .toList();
+
         await _supabaseClient
             .from('lifestyle_areas')
-            .insert({
-              'user_id': userId,
-              'area_name': area,
-            });
+            .insert(insertsData);
       }
 
       // Cache locally
       await _cacheLifestyleAreas(areas);
       AppLogger.info('Lifestyle areas updated: $areas');
     } catch (e) {
+      print('[LifestyleAreasRepository] ERROR: $e');
       AppLogger.error('Error updating lifestyle areas', e, StackTrace.current);
       rethrow;
     }

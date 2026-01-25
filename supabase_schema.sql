@@ -1,4 +1,5 @@
 -- Drop existing tables (if any) - with CASCADE to handle dependencies
+DROP TABLE IF EXISTS user_daily_selections CASCADE;
 DROP TABLE IF EXISTS daily_notes CASCADE;
 DROP TABLE IF EXISTS lifestyle_areas CASCADE;
 DROP TABLE IF EXISTS cycle_calculations CASCADE;
@@ -105,6 +106,10 @@ CREATE TABLE user_daily_selections (
   selection_date DATE NOT NULL,
   selected_recipes TEXT,
   selected_workouts TEXT,
+  completed_workouts TEXT,
+  completed_recipes TEXT,
+  selected_fasting_hours NUMERIC(3,1),
+  completed_fasting_hours NUMERIC(3,1),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   UNIQUE(user_id, selection_date)
@@ -242,5 +247,10 @@ ON CONFLICT (phase_name, day_range_start, day_range_end) DO NOTHING;
 ALTER TABLE cycle_phase_recommendations DISABLE ROW LEVEL SECURITY;
 ALTER TABLE cycle_phases DISABLE ROW LEVEL SECURITY;
 ALTER TABLE lifestyle_categories DISABLE ROW LEVEL SECURITY;
+
+-- Grant SELECT permissions to authenticated users for reference tables
+GRANT SELECT ON cycle_phases TO authenticated;
+GRANT SELECT ON lifestyle_categories TO authenticated;
+GRANT SELECT ON cycle_phase_recommendations TO authenticated;
 
 -- User profiles and lifestyle area selections are created dynamically when users sign up and complete onboarding

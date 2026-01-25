@@ -64,15 +64,23 @@ class RemoteDatasourceImpl implements RemoteDatasource {
   @override
   Future<UserProfileModel> getUserProfile(String userId) async {
     try {
+      print('[DEBUG] ===== getUserProfile CALLED for user: $userId =====');
+      print('[DEBUG] Auth user ID type: ${userId.runtimeType}');
       AppLogger.info('Fetching user profile for user: $userId');
       final response = await supabaseClient
           .from('user_profiles')
           .select()
-          .eq('id', userId)
+          .eq('user_id', userId)
           .single();
       
-      final profile = UserProfileModel.fromJson(response as Map<String, dynamic>);
+      var profile = UserProfileModel.fromJson(response);
+      print('[DEBUG] Profile fetched: ${profile.name}, ID: ${profile.id}');
       AppLogger.info('Successfully fetched user profile');
+      
+      // Note: Lifestyle areas are fetched separately via lifestyleAreasProvider
+      // They are NOT merged into the profile object
+      // This keeps the profile focused on cycle data only
+      
       return profile;
     } on PostgrestException catch (e) {
       if (e.code == 'PGRST116') {
@@ -99,7 +107,7 @@ class RemoteDatasourceImpl implements RemoteDatasource {
           .select()
           .single();
       
-      final saved = UserProfileModel.fromJson(response as Map<String, dynamic>);
+      final saved = UserProfileModel.fromJson(response);
       AppLogger.info('Successfully saved user profile');
       return saved;
     } on PostgrestException catch (e) {
@@ -157,7 +165,7 @@ class RemoteDatasourceImpl implements RemoteDatasource {
           .select()
           .single();
       
-      final saved = CycleCalculationModel.fromJson(response as Map<String, dynamic>);
+      final saved = CycleCalculationModel.fromJson(response);
       AppLogger.info('Successfully saved cycle calculation');
       return saved;
     } on PostgrestException catch (e) {

@@ -1,12 +1,13 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:cycle_sync_mvp_2/core/constants/app_constants.dart';
 import 'package:cycle_sync_mvp_2/domain/entities/user_profile.dart';
 import 'package:cycle_sync_mvp_2/presentation/providers/user_profile_provider.dart';
+import 'package:cycle_sync_mvp_2/presentation/providers/repositories_provider.dart';
 import 'package:cycle_sync_mvp_2/presentation/pages/settings_page.dart';
 
 class ProfilePage extends ConsumerStatefulWidget {
@@ -18,16 +19,28 @@ class ProfilePage extends ConsumerStatefulWidget {
 
 class _ProfilePageState extends ConsumerState<ProfilePage> {
   late TextEditingController _nameController;
+  // Local state to track optimistic UI updates for lifestyle areas
+  Map<String, bool> _optimisticLifestyleState = {};
+  // Track pending changes for debouncing - maps area name to new state (true=add, false=remove)
+  Map<String, bool> _pendingLifestyleChanges = {};
+  // Debounce timer for batching multiple rapid changes
+  Timer? _debounceTimer;
+  // Track confirmed areas that have been successfully saved to server
+  // This is the source of truth for computing the next batch
+  late Set<String> _confirmedAreas;
 
   @override
   void initState() {
     super.initState();
     _nameController = TextEditingController();
+    _confirmedAreas = {};
   }
 
   @override
   void dispose() {
     _nameController.dispose();
+    // Cancel debounce timer to prevent memory leaks
+    _debounceTimer?.cancel();
     super.dispose();
   }
 
@@ -51,8 +64,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
           ),
           ElevatedButton(
             onPressed: () async {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setString('userName', _nameController.text);
+              // Name is saved via Supabase
               ref.invalidate(userProfileProvider);
               if (context.mounted) Navigator.pop(context);
             },
@@ -66,69 +78,105 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     final userProfileAsync = ref.watch(userProfileProvider);
+    final lifestyleAreasAsync = ref.watch(lifestyleAreasProvider);
+    // Watch cached provider for instant data
+    final cachedLifestyleAreas = ref.watch(cachedLifestyleAreasProvider);
 
     return Scaffold(
       body: userProfileAsync.when(
         data: (profile) {
-          return CustomScrollView(
-            slivers: [
-              // AppBar with Settings Icon
-              SliverAppBar(
-                title: const Text('Profile'),
-                floating: true,
-                actions: [
-                  IconButton(
-                    icon: const Icon(Icons.settings),
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const SettingsPage(),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.all(AppConstants.spacingMd),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      // Profile Picture & Name Section
-                      if (profile != null) _buildIdentitySection(context, profile),
-                      const SizedBox(height: 32),
-
-                      // My Cycle Section
-                      if (profile != null) _buildCycleSection(context, profile),
-                      const SizedBox(height: 32),
-
-                      // My Lifestyle Sync Section
-                      if (profile != null) _buildLifestyleSection(context, profile),
-                      const SizedBox(height: 32),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+          return lifestyleAreasAsync.when(
+            data: (lifestyleAreas) {
+              // Initialize confirmed areas from the latest data
+              _confirmedAreas = lifestyleAreas.toSet();
+              // Use async data, but show cached data first
+              return _buildProfileUI(context, profile, lifestyleAreas);
+            },
+            loading: () {
+              // Show cached data while loading
+              if (cachedLifestyleAreas.isNotEmpty) {
+                // Initialize from cached data if we have it
+                _confirmedAreas = cachedLifestyleAreas.toSet();
+                return _buildProfileUI(context, userProfileAsync.value, cachedLifestyleAreas);
+              }
+              return const Center(child: CircularProgressIndicator());
+            },
+            error: (error, stack) => _buildErrorUI(error),
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text('Error: $error'),
-              const SizedBox(height: AppConstants.spacingMd),
-              ElevatedButton(
-                onPressed: () => ref.invalidate(userProfileProvider),
-                child: const Text('Retry'),
-              ),
-            ],
+        error: (error, stack) => _buildErrorUI(error),
+      ),
+    );
+  }
+
+  Widget _buildErrorUI(Object error) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text('Error: $error'),
+          const SizedBox(height: AppConstants.spacingMd),
+          ElevatedButton(
+            onPressed: () => ref.invalidate(userProfileProvider),
+            child: const Text('Retry'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileUI(
+    BuildContext context, 
+    UserProfile? profile,
+    List<String> lifestyleAreas,
+  ) {
+    if (profile == null) {
+      return _buildErrorUI('Profile not found');
+    }
+
+    return CustomScrollView(
+      slivers: [
+        // AppBar with Settings Icon
+        SliverAppBar(
+          title: const Text('Profile'),
+          floating: true,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.settings),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const SettingsPage(),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.all(AppConstants.spacingMd),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Profile Picture & Name Section
+                _buildIdentitySection(context, profile),
+                const SizedBox(height: 32),
+
+                // My Cycle Section
+                _buildCycleSection(context, profile),
+                const SizedBox(height: 32),
+
+                // My Lifestyle Sync Section
+                _buildLifestyleSection(context, profile, lifestyleAreas),
+                const SizedBox(height: 32),
+              ],
+            ),
           ),
         ),
-      ),
+      ],
     );
   }
 
@@ -219,9 +267,10 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     );
   }
 
+  // Avatar is now managed through Supabase userProfileProvider
   Future<String?> _getAvatarPath() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('userAvatarPath');
+    // TODO: Avatars will be stored in Supabase storage when implemented
+    return null;
   }
 
   void _showImagePickerOptions(BuildContext context) {
@@ -265,14 +314,12 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
       );
 
       if (pickedFile != null) {
-        final prefs = await SharedPreferences.getInstance();
-        
         // Read file and convert to base64
         final bytes = await File(pickedFile.path).readAsBytes();
         final base64String = base64Encode(bytes);
         
-        // Save to SharedPreferences
-        await prefs.setString('userAvatarPath', 'data:image/jpeg;base64,$base64String');
+        // Save to Supabase via provider
+        await ref.read(updateAvatarProvider(base64String).future);
         
         // Refresh UI
         setState(() {});
@@ -335,7 +382,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     );
   }
 
-  Widget _buildLifestyleSection(BuildContext context, UserProfile profile) {
+  Widget _buildLifestyleSection(BuildContext context, UserProfile profile, List<String> lifestyleAreas) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -351,7 +398,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
         _buildLifestyleChip(
           context,
           label: 'Nutrition',
-          isSelected: profile.lifestyleAreas.contains('Nutrition'),
+          isSelected: _optimisticLifestyleState['Nutrition'] ?? lifestyleAreas.contains('Nutrition'),
           onTap: () => _toggleLifestyleArea(profile, 'Nutrition'),
         ),
         const SizedBox(height: 12),
@@ -360,7 +407,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
         _buildLifestyleChip(
           context,
           label: 'Fitness',
-          isSelected: profile.lifestyleAreas.contains('Fitness'),
+          isSelected: _optimisticLifestyleState['Fitness'] ?? lifestyleAreas.contains('Fitness'),
           onTap: () => _toggleLifestyleArea(profile, 'Fitness'),
         ),
         const SizedBox(height: 12),
@@ -372,10 +419,10 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
             _buildLifestyleChip(
               context,
               label: 'Fasting',
-              isSelected: profile.lifestyleAreas.contains('Fasting'),
+              isSelected: _optimisticLifestyleState['Fasting'] ?? lifestyleAreas.contains('Fasting'),
               onTap: () => _toggleLifestyleArea(profile, 'Fasting'),
             ),
-            if (profile.lifestyleAreas.contains('Fasting')) ...[
+            if ((_optimisticLifestyleState['Fasting'] ?? lifestyleAreas.contains('Fasting'))) ...[
               const SizedBox(height: 12),
               Padding(
                 padding: const EdgeInsets.only(left: 8.0),
@@ -437,6 +484,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
+        width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           border: Border.all(
@@ -476,17 +524,145 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
     );
   }
 
-  Future<void> _toggleLifestyleArea(UserProfile profile, String area) async {
-    final areas = List<String>.from(profile.lifestyleAreas);
-    if (areas.contains(area)) {
-      areas.remove(area);
-    } else {
-      areas.add(area);
-    }
+  void _toggleLifestyleArea(UserProfile profile, String area) {
+    // Get current state - use _confirmedAreas as source of truth (updated after each successful batch save)
+    // Fall back to optimistic/pending state if area is being edited now
+    final wasSelected = _optimisticLifestyleState[area] 
+        ?? _pendingLifestyleChanges[area]
+        ?? _confirmedAreas.contains(area);
+    
+    final newState = !wasSelected;
+    print('[ProfilePage] Toggle area: $area from $wasSelected to $newState (confirmed: $_confirmedAreas)');
+    
+    // Update optimistic UI immediately (checkbox shows checked/unchecked right away)
+    setState(() {
+      _optimisticLifestyleState[area] = newState;
+      // Track this change as pending for batch processing
+      _pendingLifestyleChanges[area] = newState;
+      print('[ProfilePage] Optimistic state updated, pending changes: $_pendingLifestyleChanges');
+    });
+    
+    // Cancel existing debounce timer to reset the countdown
+    _debounceTimer?.cancel();
+    
+    // Start new debounce timer - batch save all pending changes after 500ms of no new changes
+    _debounceTimer = Timer(const Duration(milliseconds: 500), () {
+      _batchSaveLifestyleAreas();
+    });
+  }
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList('lifestyleAreas', areas);
-    ref.invalidate(userProfileProvider);
+  Future<void> _batchSaveLifestyleAreas() async {
+    if (_pendingLifestyleChanges.isEmpty) {
+      print('[ProfilePage] No pending changes to save');
+      return;
+    }
+    
+    // Snapshot the pending changes that we're about to save
+    // Any new toggles that arrive while we're saving will create new pending changes
+    final pendingSnapshot = Map<String, bool>.from(_pendingLifestyleChanges);
+    
+    print('[ProfilePage] Batch saving pending changes: $pendingSnapshot');
+    print('[ProfilePage] Current confirmed areas: $_confirmedAreas');
+    
+    // Get the final list of areas that should be selected based on pending changes
+    // Use _confirmedAreas as the base (source of truth for what's been saved)
+    final newAreas = <String>{..._confirmedAreas};
+    
+    // Apply all pending changes
+    pendingSnapshot.forEach((area, shouldBeSelected) {
+      if (shouldBeSelected) {
+        newAreas.add(area);
+      } else {
+        newAreas.remove(area);
+      }
+    });
+    
+    try {
+      // Batch save all changes in one request
+      print('[ProfilePage] Sending batch update: $newAreas');
+      await ref.read(updateLifestyleAreasProvider(newAreas.toList()).future);
+      print('[ProfilePage] Batch save completed');
+      
+      // After successful save, refresh providers to get fresh data from cache
+      print('[ProfilePage] Refreshing providers after batch save...');
+      final refreshedAreas = await ref.refresh(lifestyleAreasProvider.future);
+      unawaited(ref.refresh(userProfileProvider.future));
+      print('[ProfilePage] Providers refreshed, new areas: $refreshedAreas');
+      
+      // Transaction complete: clear optimistic state and update confirmed areas
+      if (mounted) {
+        setState(() {
+          // Update confirmed areas with the newly saved state
+          _confirmedAreas = newAreas;
+          // Only remove the pending changes that we actually processed in this batch
+          // Any new toggles that arrived during the save will remain in _pendingLifestyleChanges
+          pendingSnapshot.forEach((area, _) {
+            _pendingLifestyleChanges.remove(area);
+            _optimisticLifestyleState.remove(area);
+          });
+          print('[ProfilePage] Batch completed. Confirmed areas: $_confirmedAreas, remaining pending: $_pendingLifestyleChanges');
+          
+          // If there are still pending changes (from new toggles during the save),
+          // start a new debounce timer to process them
+          if (_pendingLifestyleChanges.isNotEmpty) {
+            print('[ProfilePage] New pending changes detected, starting new debounce...');
+            _debounceTimer?.cancel();
+            _debounceTimer = Timer(const Duration(milliseconds: 500), () {
+              _batchSaveLifestyleAreas();
+            });
+          }
+        });
+      }
+    } catch (e) {
+      print('[ProfilePage] Error saving batch changes: $e');
+      // Revert optimistic state for the snapshot we tried to save
+      if (mounted) {
+        setState(() {
+          // Only revert the optimistic state for changes we tried to save
+          // Keep any new pending changes that arrived during the failed save
+          pendingSnapshot.forEach((area, _) {
+            _optimisticLifestyleState.remove(area);
+            _pendingLifestyleChanges.remove(area);
+          });
+          print('[ProfilePage] Optimistic state reverted for failed batch: $pendingSnapshot');
+        });
+        
+        // Show error recovery dialog with retry option
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (BuildContext dialogContext) => AlertDialog(
+            title: const Text('Failed to Save Changes'),
+            content: Text('Could not save ${pendingSnapshot.length} area changes: $e\n\nTry again?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(dialogContext);
+                  // Retry the batch save
+                  _retryBatchSave(pendingSnapshot);
+                },
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _retryBatchSave(Map<String, bool> pendingChanges) async {
+    // Restore pending changes and retry
+    setState(() {
+      _pendingLifestyleChanges = pendingChanges;
+      for (var entry in pendingChanges.entries) {
+        _optimisticLifestyleState[entry.key] = entry.value;
+      }
+    });
+    await _batchSaveLifestyleAreas();
   }
 
   void _showEditCycleModal(BuildContext context, UserProfile profile) {
@@ -535,8 +711,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
   }
 
   Future<void> _saveFastingPreference(String preference) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('fastingPreference', preference);
+    // Fasting preference is saved via Supabase
     ref.invalidate(userProfileProvider);
     if (mounted) Navigator.pop(context);
   }
@@ -586,11 +761,18 @@ class _CycleEditFormState extends ConsumerState<_CycleEditForm> {
 
   Future<void> _saveChanges() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt('cycleLength', _cycleLength);
-      await prefs.setInt('menstrualLength', _menstrualLength);
-      await prefs.setString('lastPeriodDate', _lastPeriodDate.toIso8601String());
-      await prefs.setInt('lutealPhaseLength', _lutealPhaseLength);
+      // Save cycle settings via Supabase
+      await ref.read(saveUserProfileProvider(
+        (
+          name: '',
+          cycleLength: _cycleLength,
+          menstrualLength: _menstrualLength,
+          lutealPhaseLength: _lutealPhaseLength,
+          lastPeriodDate: _lastPeriodDate,
+          avatarBase64: null,
+          fastingPreference: null,
+        )
+      ).future);
 
       ref.invalidate(userProfileProvider);
       widget.onSaved();
