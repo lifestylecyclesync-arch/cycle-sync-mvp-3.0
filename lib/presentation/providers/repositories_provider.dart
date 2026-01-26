@@ -179,8 +179,9 @@ final phaseRecommendationsProvider = FutureProvider.family<Map<String, dynamic>?
 
 /// Default recommendations for each phase when database is empty or unavailable
 Map<String, dynamic> _getDefaultPhaseRecommendations(String phaseName) {
-  final defaults = {
-    'Menstrual': {
+  // Map lifestyle phase names to their corresponding recommendations
+  final lifestylePhaseDefaults = {
+    'Glow Reset': {
       'phase_name': 'Menstrual',
       'lifestyle_phase': 'Glow Reset',
       'hormonal_state': 'Low E, Low P',
@@ -188,17 +189,21 @@ Map<String, dynamic> _getDefaultPhaseRecommendations(String phaseName) {
       'food_recipes': 'Lentil & Spinach Stew • Beetroot & Quinoa Salad • Moroccan Chickpea Tagine • Black Bean Chili con Carne • Braised Kale & White Beans • Red Lentil & Carrot Soup',
       'workout_mode': 'Low-Impact Workout',
       'workout_types': 'Walking • Rest • Hot Girl Walk • Yoga • Mat Pilates • Foam rolling • Low-Impact Strength Training',
+      'fast_style_beginner': '13h',
+      'fast_style_advanced': '15h',
     },
-    'Follicular': {
-      'phase_name': 'Follicular',
+    'Power Up': {
+      'phase_name': 'Follicular & Early Luteal',
       'lifestyle_phase': 'Power Up',
-      'hormonal_state': 'Rising E',
-      'food_vibe': 'Gut-Friendly Low-Carb',
+      'hormonal_state': 'Rising E / Declining E, Rising P',
+      'food_vibe': 'Carb-Boost Hormone Fuel',
       'food_recipes': 'Grilled Salmon with Quinoa & Greens • Chicken & Broccoli Stir-Fry • Tofu & Vegetable Power Bowl • Shrimp & Zucchini Noodles • Turkey & Spinach Meatballs • Eggplant & Chickpea Curry',
       'workout_mode': 'Moderate to High-Intensity Workout',
       'workout_types': 'Cardio • 12-3-30 Treadmill • Incline walking • HIIT • Cycling • Spin class • Strength Training • Reformer Pilates • Power yoga',
+      'fast_style_beginner': '17h',
+      'fast_style_advanced': '24h',
     },
-    'Ovulation': {
+    'Main Character': {
       'phase_name': 'Ovulation',
       'lifestyle_phase': 'Main Character',
       'hormonal_state': 'Peak E',
@@ -206,17 +211,10 @@ Map<String, dynamic> _getDefaultPhaseRecommendations(String phaseName) {
       'food_recipes': 'Mediterranean Grain Bowl • Sweet Potato & Black Bean Tacos • Pasta Primavera • Mango & Avocado Salad • Quinoa Tabouleh • Roasted Vegetable Couscous',
       'workout_mode': 'Strength & Resistance',
       'workout_types': 'Heavy lifting • Strength Training • Strength Reformer Pilates',
+      'fast_style_beginner': '13h',
+      'fast_style_advanced': '17h',
     },
-    'Early Luteal': {
-      'phase_name': 'Early Luteal',
-      'lifestyle_phase': 'Power Up',
-      'hormonal_state': 'Declining E, Rising P',
-      'food_vibe': 'Carb-Boost Hormone Fuel',
-      'food_recipes': 'Turkey & Vegetable Stir-Fry • Lentil & Carrot Curry • Cauliflower Rice Buddha Bowl • Chickpea & Spinach Sauté • Grilled Chicken with Brussels Sprouts • Tempeh & Broccoli Stir-Fry',
-      'workout_mode': 'Moderate to High-Intensity Workout',
-      'workout_types': 'Spin Class • Strength Training • Endurance Runs • Circuits • Power yoga • Reformer Pilates • Cardio',
-    },
-    'Luteal': {
+    'Cozy Care': {
       'phase_name': 'Luteal',
       'lifestyle_phase': 'Cozy Care',
       'hormonal_state': 'Low E, High P',
@@ -224,10 +222,12 @@ Map<String, dynamic> _getDefaultPhaseRecommendations(String phaseName) {
       'food_recipes': 'Turkey & Vegetable Stir-Fry • Lentil & Carrot Curry • Cauliflower Rice Buddha Bowl • Chickpea & Spinach Sauté • Grilled Chicken with Brussels Sprouts • Tempeh & Broccoli Stir-Fry',
       'workout_mode': 'Moderate to Low-Impact Strength',
       'workout_types': 'Hot Girl Walk • Low-Impact Strength Training • Yoga • Mat Pilates • Foam rolling • Restorative Pilates • Gentle Stretching',
+      'fast_style_beginner': '13h',
+      'fast_style_advanced': '13h',
     },
   };
   
-  return defaults[phaseName] ?? defaults['Menstrual']!;
+  return lifestylePhaseDefaults[phaseName] ?? lifestylePhaseDefaults['Glow Reset']!;
 }
 
 // Factory to pass parameters

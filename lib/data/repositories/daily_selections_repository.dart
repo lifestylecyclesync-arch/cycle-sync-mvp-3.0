@@ -374,6 +374,117 @@ class DailySelectionsRepository {
     }
   }
 
+  /// Save fasting type selection for a specific date (appends to array)
+  Future<void> selectFastingType(String userId, DateTime date, String fastingType) async {
+    try {
+      final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+      
+      print('[DailySelections] About to save fasting type: $fastingType for user: $userId on date: $dateStr');
+      
+      // First try to get existing record
+      final existing = await _supabase
+          .from('user_daily_selections')
+          .select()
+          .eq('user_id', userId)
+          .eq('selection_date', dateStr)
+          .maybeSingle();
+      
+      if (existing != null) {
+        // Parse existing fasting types
+        List<String> fastingTypes = [];
+        final existingFasting = existing['selected_fasting'];
+        if (existingFasting != null && existingFasting.isNotEmpty) {
+          try {
+            fastingTypes = List<String>.from(jsonDecode(existingFasting) as List);
+          } catch (e) {
+            print('[DailySelections] Error parsing existing fasting types: $e');
+          }
+        }
+        
+        // Add new fasting type if not already in list
+        if (!fastingTypes.contains(fastingType)) {
+          fastingTypes.add(fastingType);
+        }
+        
+        // Update with appended list
+        await _supabase
+            .from('user_daily_selections')
+            .update({
+              'selected_fasting': jsonEncode(fastingTypes),
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('user_id', userId)
+            .eq('selection_date', dateStr);
+        print('[DailySelections] Fasting type appended successfully: $fastingType');
+      } else {
+        // Insert new record with single fasting type in array
+        await _supabase
+            .from('user_daily_selections')
+            .insert({
+              'user_id': userId,
+              'selection_date': dateStr,
+              'selected_fasting': jsonEncode([fastingType]),
+              'updated_at': DateTime.now().toIso8601String(),
+            });
+        print('[DailySelections] Fasting type inserted successfully: $fastingType');
+      }
+    } catch (e) {
+      print('[Error] Failed to select fasting type: $e');
+      rethrow;
+    }
+  }
+
+  /// Delete a fasting type from the selected fasting types
+  Future<void> deleteFastingType(String userId, DateTime date, String fastingType) async {
+    try {
+      final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+      
+      print('[DailySelections] Deleting fasting type: $fastingType for user: $userId on date: $dateStr');
+      
+      // Get existing record
+      final existing = await _supabase
+          .from('user_daily_selections')
+          .select()
+          .eq('user_id', userId)
+          .eq('selection_date', dateStr)
+          .maybeSingle();
+      
+      if (existing == null) {
+        print('[DailySelections] No record found for date $dateStr');
+        return;
+      }
+      
+      // Parse existing fasting types
+      List<String> fastingTypes = [];
+      final existingFasting = existing['selected_fasting'];
+      if (existingFasting != null && existingFasting.isNotEmpty) {
+        try {
+          fastingTypes = List<String>.from(jsonDecode(existingFasting) as List);
+        } catch (e) {
+          print('[DailySelections] Error parsing existing fasting types: $e');
+        }
+      }
+      
+      // Remove fasting type from list
+      fastingTypes.remove(fastingType);
+      
+      // Update database
+      await _supabase
+          .from('user_daily_selections')
+          .update({
+            'selected_fasting': fastingTypes.isEmpty ? null : jsonEncode(fastingTypes),
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('user_id', userId)
+          .eq('selection_date', dateStr);
+      
+      print('[DailySelections] Fasting type deleted successfully: $fastingType');
+    } catch (e) {
+      print('[Error] Failed to delete fasting type: $e');
+      rethrow;
+    }
+  }
+
   /// Log completed recipe for a specific date
   Future<void> logRecipe(String userId, DateTime date, String recipe) async {
     try {
