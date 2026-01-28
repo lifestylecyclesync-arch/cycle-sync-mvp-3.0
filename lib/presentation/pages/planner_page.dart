@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cycle_sync_mvp_2/presentation/widgets/card_sections.dart';
 import 'package:cycle_sync_mvp_2/core/constants/app_constants.dart';
 import 'package:cycle_sync_mvp_2/core/config/supabase_config.dart';
 import 'package:cycle_sync_mvp_2/presentation/providers/cycle_phase_provider.dart';
@@ -503,21 +504,12 @@ class _PlannerPageState extends ConsumerState<PlannerPage> {
                           final phaseName = phaseInfo.lifestylePhase;
                           print('[Fitness Screen] Workouts for ${phaseInfo.lifestylePhase}: ${workouts.join(", ")}');
                           
-                          return Padding(
-                            padding: EdgeInsets.all(AppConstants.spacingMd),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Fitness',
-                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.black87,
-                                  ),
-                                ),
-                                SizedBox(height: AppConstants.spacingSm),
-                                // Workout mode - tap to see suggested workouts
-                                Padding(
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Learn section - workout mode selector
+                              PlannerCard(
+                                child: Padding(
                                   padding: EdgeInsets.only(left: AppConstants.spacingMd),
                                   child: Material(
                                     color: Colors.transparent,
@@ -714,11 +706,13 @@ class _PlannerPageState extends ConsumerState<PlannerPage> {
                                     ),
                                   ),
                                 ),
-                                SizedBox(height: AppConstants.spacingMd),
-                                // Today's Plan section
-                                if (userId != null)
-                                  ref.watch(dailySelectionsProvider(_selectedDate)).when(
-                                    data: (selections) {
+                              ),
+                              SizedBox(height: AppConstants.spacingMd),
+                              // Plan section - today's workouts
+                              PlannerCard(
+                                child: userId != null
+                                    ? ref.watch(dailySelectionsProvider(_selectedDate)).when(
+                                        data: (selections) {
                                       final selectedWorkoutsJson = selections?['selected_workouts'] as String?;
                                       List<String> selectedWorkouts = [];
                                       
@@ -870,10 +864,11 @@ class _PlannerPageState extends ConsumerState<PlannerPage> {
                                     },
                                     loading: () => CircularProgressIndicator(),
                                     error: (_, __) => Text('Error loading workouts'),
-                                  ),
+                                  )
+                                    : SizedBox.shrink(),
+                              ),
                               ],
-                            ),
-                          );
+                            );
                         },
                         loading: () => Center(child: CircularProgressIndicator()),
                         error: (err, __) => Center(child: Text('Error: $err')),
@@ -1051,21 +1046,12 @@ class _PlannerPageState extends ConsumerState<PlannerPage> {
                           final userId = ref.watch(userIdProvider);
                           final foodVibe = phaseData['food_vibe'] ?? 'Balanced';
                           
-                          return Padding(
-                            padding: EdgeInsets.all(AppConstants.spacingMd),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Diet',
-                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.black87,
-                                  ),
-                                ),
-                                SizedBox(height: AppConstants.spacingSm),
-                                // Food vibe - tap to see suggested recipes
-                                Padding(
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Learn section - food vibe selector
+                              DietCard(
+                                child: Padding(
                                   padding: EdgeInsets.only(left: AppConstants.spacingMd),
                                   child: Material(
                                     color: Colors.transparent,
@@ -1262,11 +1248,13 @@ class _PlannerPageState extends ConsumerState<PlannerPage> {
                                     ),
                                   ),
                                 ),
-                                SizedBox(height: AppConstants.spacingMd),
-                                // Today's Plan section
-                                if (userId != null)
-                                  ref.watch(dailySelectionsProvider(_selectedDate)).when(
-                                    data: (selections) {
+                              ),
+                              SizedBox(height: AppConstants.spacingMd),
+                              // Plan section - today's recipes
+                              DietCard(
+                                child: userId != null
+                                    ? ref.watch(dailySelectionsProvider(_selectedDate)).when(
+                                        data: (selections) {
                                       final selectedRecipesJson = selections?['selected_recipes'] as String?;
                                       List<String> selectedRecipes = [];
                                       
@@ -1418,9 +1406,10 @@ class _PlannerPageState extends ConsumerState<PlannerPage> {
                                     },
                                     loading: () => CircularProgressIndicator(),
                                     error: (_, __) => Text('Error loading recipes'),
-                                  ),
-                              ],
-                            ),
+                                  )
+                                    : SizedBox.shrink(),
+                              ),
+                            ],
                           );
                         },
                         loading: () => Center(child: CircularProgressIndicator()),
@@ -1605,21 +1594,12 @@ class _PlannerPageState extends ConsumerState<PlannerPage> {
                                 ? phaseData['fast_style_beginner'] ?? '13h'
                                 : phaseData['fast_style_advanced'] ?? '16h';
                               
-                              return Padding(
-                                padding: EdgeInsets.all(AppConstants.spacingMd),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Fasting',
-                                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.black87,
-                                      ),
-                                    ),
-                                    SizedBox(height: AppConstants.spacingSm),
-                                    // Recommended fasting style - tap to select
-                                    Padding(
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Learn section - fasting preference selector
+                                  FastingCard(
+                                    child: Padding(
                                       padding: EdgeInsets.only(left: AppConstants.spacingMd),
                                       child: Material(
                                         color: Colors.transparent,
@@ -1662,11 +1642,13 @@ class _PlannerPageState extends ConsumerState<PlannerPage> {
                                         ),
                                       ),
                                     ),
-                                    SizedBox(height: AppConstants.spacingMd),
-                                    // Today's Plan section
-                                    if (userId != null)
-                                      ref.watch(dailySelectionsProvider(_selectedDate)).when(
-                                        data: (selections) {
+                                  ),
+                                  SizedBox(height: AppConstants.spacingMd),
+                                  // Plan section - today's fasting
+                                  FastingCard(
+                                    child: userId != null
+                                        ? ref.watch(dailySelectionsProvider(_selectedDate)).when(
+                                            data: (selections) {
                                           final selectedFastingHours = selections?['selected_fasting_hours'];
                                           
                                           if (selectedFastingHours == null || selectedFastingHours == 0) {
@@ -1806,9 +1788,10 @@ class _PlannerPageState extends ConsumerState<PlannerPage> {
                                         },
                                         loading: () => CircularProgressIndicator(),
                                         error: (_, __) => Text('Error loading fasting plan'),
-                                      ),
-                                  ],
-                                ),
+                                      )
+                                        : SizedBox.shrink(),
+                                  ),
+                                ],
                               );
                             },
                             loading: () => CircularProgressIndicator(),
