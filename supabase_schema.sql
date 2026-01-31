@@ -1,256 +1,435 @@
--- Drop existing tables (if any) - with CASCADE to handle dependencies
-DROP TABLE IF EXISTS user_daily_selections CASCADE;
-DROP TABLE IF EXISTS daily_notes CASCADE;
-DROP TABLE IF EXISTS lifestyle_areas CASCADE;
-DROP TABLE IF EXISTS cycle_calculations CASCADE;
-DROP TABLE IF EXISTS cycle_phase_recommendations CASCADE;
-DROP TABLE IF EXISTS user_profiles CASCADE;
-DROP TABLE IF EXISTS lifestyle_categories CASCADE;
-DROP TABLE IF EXISTS cycle_phases CASCADE;
+-- ============================================================================
+-- CYCLE SYNC MVP 2 — SUPABASE SCHEMA
+-- ============================================================================
+-- Production-ready schema for Cycle Sync app
+-- Last updated: 2025-01-30
+-- 
+-- Instructions:
+-- 1. Copy entire file
+-- 2. Paste into Supabase SQL Editor
+-- 3. Run to create tables and policies
+-- 4. Enable RLS on all tables
+-- 5. Verify relationships in Data section
+-- ============================================================================
 
--- Create user_profiles table
-CREATE TABLE user_profiles (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
-  name VARCHAR(255) NOT NULL,
-  cycle_length INTEGER NOT NULL CHECK (cycle_length >= 21 AND cycle_length <= 35),
-  menstrual_length INTEGER NOT NULL CHECK (menstrual_length >= 2 AND menstrual_length <= 10),
-  luteal_phase_length INTEGER NOT NULL DEFAULT 14 CHECK (luteal_phase_length >= 10 AND luteal_phase_length <= 16),
-  last_period_date TIMESTAMP WITH TIME ZONE NOT NULL,
-  avatar_base64 TEXT,
-  fasting_preference VARCHAR(20) DEFAULT 'Beginner',
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+-- ============================================================================
+-- PART 1: ENABLE EXTENSIONS
+-- ============================================================================
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- ============================================================================
+-- PART 2: TABLES
+-- ============================================================================
+
+-- USER PROFILES (extends auth.users)
+CREATE TABLE public.user_profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email TEXT UNIQUE NOT NULL,
+  display_name TEXT,
+  avatar_url TEXT,
+  
+  -- Cycle data
+  cycle_length INTEGER NOT NULL DEFAULT 28 CHECK (cycle_length >= 21 AND cycle_length <= 35),
+  menstrual_length INTEGER NOT NULL DEFAULT 5 CHECK (menstrual_length >= 2 AND menstrual_length <= 10),
+  last_period_date DATE NOT NULL,
+  luteal_phase_length INTEGER NOT NULL DEFAULT 14 CHECK (luteal_phase_length >= 10 AND luteal_phase_length <= 18),
+  
+  -- Lifestyle preferences
+  lifestyle_areas TEXT[] DEFAULT '{}', -- ['Nutrition', 'Fitness', 'Fasting']
+  fasting_preference TEXT DEFAULT 'beginner', -- 'beginner' or 'advanced'
+  
+  -- Metadata
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  
+  CONSTRAINT lifestyle_areas_valid CHECK (
+    lifestyle_areas IS NULL OR 
+    lifestyle_areas && ARRAY['Nutrition', 'Fitness', 'Fasting']
+  )
 );
 
--- Create cycle_phases reference table
-CREATE TABLE cycle_phases (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  phase_name VARCHAR(50) NOT NULL UNIQUE,
-  phase_type VARCHAR(50) NOT NULL,
+-- CYCLES (menstrual cycle records)
+CREATE TABLE public.cycles (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
+  
+  start_date DATE NOT NULL,
+  end_date DATE,
+  cycle_length INTEGER DEFAULT 28,
+  notes TEXT,
+  
+  is_active BOOLEAN DEFAULT TRUE,
+  
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  
+  UNIQUE (user_id, start_date)
+);
+
+-- CYCLE ENTRIES (daily cycle tracking)
+CREATE TABLE public.cycle_entries (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
+  cycle_id UUID REFERENCES public.cycles(id) ON DELETE SET NULL,
+  
+  entry_date DATE NOT NULL,
+  
+  -- Flow intensity (1-5 or null if not menstruating)
+  flow_intensity INTEGER CHECK (flow_intensity IS NULL OR (flow_intensity >= 1 AND flow_intensity <= 5)),
+  
+  -- Symptoms (array of symptom tags)
+  symptoms TEXT[] DEFAULT '{}',
+  
+  -- Notes
+  notes TEXT,
+  
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  
+  UNIQUE (user_id, entry_date)
+);
+
+-- WORKOUTS (exercise tracking)
+CREATE TABLE public.workouts (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
+  
+  workout_date DATE NOT NULL,
+  workout_type TEXT NOT NULL, -- e.g., 'Cardio', 'Strength', 'Yoga', 'HIIT'
+  duration_minutes INTEGER,
+  intensity_level TEXT, -- 'Low', 'Moderate', 'High'
+  notes TEXT,
+  
+  -- Cycle sync
+  cycle_day INTEGER,
+  hormonal_phase TEXT, -- 'Menstrual', 'Follicular', 'Ovulation', 'Luteal'
+  
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- USER WORKOUTS (linking custom workouts to user plans)
+CREATE TABLE public.user_workouts (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
+  workout_id UUID REFERENCES public.workouts(id) ON DELETE CASCADE,
+  
+  -- For planned workouts (prescriptive)
+  planned_date DATE,
+  completed BOOLEAN DEFAULT FALSE,
+  
+  notes TEXT,
+  
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- RECIPES (canonical recipe data)
+CREATE TABLE public.recipes (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  
+  name TEXT NOT NULL UNIQUE,
   description TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  
+  -- Nutrition per serving
+  calories NUMERIC(8, 2),
+  protein_g NUMERIC(8, 2),
+  carbs_g NUMERIC(8, 2),
+  fat_g NUMERIC(8, 2),
+  fiber_g NUMERIC(8, 2),
+  
+  -- Recipe metadata
+  prep_time_minutes INTEGER,
+  cook_time_minutes INTEGER,
+  servings INTEGER DEFAULT 1,
+  
+  -- Categorization
+  meal_type TEXT, -- 'Breakfast', 'Lunch', 'Dinner', 'Snack'
+  cuisine_type TEXT, -- 'Mediterranean', 'Asian', 'Indian', etc.
+  dietary_tags TEXT[] DEFAULT '{}', -- ['Vegetarian', 'Gluten-Free', 'Vegan', ...]
+  
+  -- Cycle phase association
+  associated_phases TEXT[] DEFAULT '{}', -- ['Menstrual', 'Follicular', ...]
+  food_vibe TEXT, -- 'Gut-Friendly Low-Carb', 'Carb-Boost Hormone Fuel', etc.
+  
+  -- Image and source
+  image_url TEXT,
+  source_url TEXT,
+  is_custom BOOLEAN DEFAULT FALSE,
+  
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create lifestyle_categories reference table
-CREATE TABLE lifestyle_categories (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  category_name VARCHAR(50) NOT NULL UNIQUE,
-  description TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+-- USER RECIPES (user's saved and planned recipes)
+CREATE TABLE public.user_recipes (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
+  recipe_id UUID NOT NULL REFERENCES public.recipes(id) ON DELETE CASCADE,
+  
+  -- User's personal notes
+  personal_notes TEXT,
+  
+  -- Meal planning
+  planned_date DATE,
+  meal_type TEXT, -- 'Breakfast', 'Lunch', 'Dinner', 'Snack'
+  
+  is_favorite BOOLEAN DEFAULT FALSE,
+  times_prepared INTEGER DEFAULT 0,
+  
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  
+  UNIQUE (user_id, recipe_id, planned_date)
 );
 
--- Create cycle_phase_recommendations reference table (adaptive syncing lookup)
-CREATE TABLE cycle_phase_recommendations (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  phase_name VARCHAR(50) NOT NULL,
-  lifestyle_phase VARCHAR(50) NOT NULL,
-  hormonal_state VARCHAR(50) NOT NULL,
-  food_vibe VARCHAR(100) NOT NULL,
-  food_recipes TEXT,
-  workout_mode VARCHAR(100) NOT NULL,
-  workout_types TEXT,
-  fasting_beginner VARCHAR(50) NOT NULL,
-  fasting_advanced VARCHAR(50) NOT NULL,
-  day_range_start INTEGER NOT NULL,
-  day_range_end INTEGER NOT NULL,
-  description TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(phase_name, day_range_start, day_range_end)
+-- FASTING SESSIONS (intermittent fasting logs)
+CREATE TABLE public.fasting_sessions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
+  
+  fasting_date DATE NOT NULL,
+  
+  -- Duration tracking
+  start_time TIMESTAMP WITH TIME ZONE,
+  end_time TIMESTAMP WITH TIME ZONE,
+  duration_hours NUMERIC(4, 2),
+  
+  fasting_style TEXT, -- 'Short Fast (13h)', 'Medium Fast (15h)', 'Long Fast (17h)', 'Extended Fast (24h)'
+  notes TEXT,
+  
+  -- Cycle sync
+  cycle_day INTEGER,
+  hormonal_phase TEXT, -- 'Menstrual', 'Follicular', 'Ovulation', 'Luteal'
+  
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create lifestyle_areas table (many-to-many between users and areas)
-CREATE TABLE lifestyle_areas (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  area_name VARCHAR(50) NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(user_id, area_name)
+-- NUTRITION DATA (daily nutrition summary)
+CREATE TABLE public.nutrition_data (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
+  
+  nutrition_date DATE NOT NULL,
+  
+  -- Daily totals
+  total_calories NUMERIC(8, 2),
+  total_protein_g NUMERIC(8, 2),
+  total_carbs_g NUMERIC(8, 2),
+  total_fat_g NUMERIC(8, 2),
+  total_fiber_g NUMERIC(8, 2),
+  
+  -- Micronutrients
+  iron_mg NUMERIC(8, 2),
+  magnesium_mg NUMERIC(8, 2),
+  calcium_mg NUMERIC(8, 2),
+  
+  -- Cycle sync
+  cycle_day INTEGER,
+  hormonal_phase TEXT,
+  food_vibe TEXT,
+  
+  notes TEXT,
+  
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  
+  UNIQUE (user_id, nutrition_date)
 );
 
--- Create daily_notes table for per-date notes
-CREATE TABLE daily_notes (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  note_date DATE NOT NULL,
-  note_text TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(user_id, note_date)
-);
+-- ============================================================================
+-- PART 3: INDEXES (for performance)
+-- ============================================================================
 
--- Create cycle_calculations table
-CREATE TABLE cycle_calculations (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  calculation_date TIMESTAMP WITH TIME ZONE NOT NULL,
-  cycle_day INTEGER NOT NULL,
-  phase_type VARCHAR(50) NOT NULL,
-  lifestyle_phase VARCHAR(50) NOT NULL,
-  hormonal_state VARCHAR(50) NOT NULL,
-  days_until_next_period INTEGER NOT NULL,
-  is_ovulation_window BOOLEAN NOT NULL DEFAULT FALSE,
-  is_first_day_of_cycle BOOLEAN NOT NULL DEFAULT FALSE,
-  next_period_date TIMESTAMP WITH TIME ZONE NOT NULL,
-  cycle_start_date TIMESTAMP WITH TIME ZONE NOT NULL,
-  cycle_day_of_month INTEGER,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(user_id, calculation_date)
-);
+CREATE INDEX idx_cycles_user_id ON public.cycles(user_id);
+CREATE INDEX idx_cycles_start_date ON public.cycles(start_date);
+CREATE INDEX idx_cycle_entries_user_id ON public.cycle_entries(user_id);
+CREATE INDEX idx_cycle_entries_entry_date ON public.cycle_entries(entry_date);
+CREATE INDEX idx_workouts_user_id ON public.workouts(user_id);
+CREATE INDEX idx_workouts_workout_date ON public.workouts(workout_date);
+CREATE INDEX idx_user_workouts_user_id ON public.user_workouts(user_id);
+CREATE INDEX idx_user_recipes_user_id ON public.user_recipes(user_id);
+CREATE INDEX idx_fasting_sessions_user_id ON public.fasting_sessions(user_id);
+CREATE INDEX idx_fasting_sessions_fasting_date ON public.fasting_sessions(fasting_date);
+CREATE INDEX idx_nutrition_data_user_id ON public.nutrition_data(user_id);
+CREATE INDEX idx_nutrition_data_nutrition_date ON public.nutrition_data(nutrition_date);
 
--- Create user_daily_selections table for tracking selected recipes and workouts per day
-CREATE TABLE user_daily_selections (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  selection_date DATE NOT NULL,
-  selected_recipes TEXT,
-  selected_workouts TEXT,
-  completed_workouts TEXT,
-  completed_recipes TEXT,
-  selected_fasting_hours NUMERIC(3,1),
-  completed_fasting_hours NUMERIC(3,1),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(user_id, selection_date)
-);
+-- ============================================================================
+-- PART 4: ROW LEVEL SECURITY (RLS)
+-- ============================================================================
 
--- Create indexes for better query performance
-CREATE INDEX idx_user_profiles_user_id ON user_profiles(user_id);
-CREATE INDEX idx_cycle_calculations_user_id ON cycle_calculations(user_id);
-CREATE INDEX idx_cycle_calculations_date ON cycle_calculations(calculation_date);
-CREATE INDEX idx_cycle_calculations_user_date ON cycle_calculations(user_id, calculation_date);
-CREATE INDEX idx_lifestyle_areas_user_id ON lifestyle_areas(user_id);
-CREATE INDEX idx_daily_notes_user_id ON daily_notes(user_id);
-CREATE INDEX idx_daily_notes_user_date ON daily_notes(user_id, note_date);
-CREATE INDEX idx_cycle_phase_recommendations_phase ON cycle_phase_recommendations(phase_name);
-CREATE INDEX idx_user_daily_selections_user_id ON user_daily_selections(user_id);
-CREATE INDEX idx_user_daily_selections_user_date ON user_daily_selections(user_id, selection_date);
+-- Enable RLS on all tables
+ALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cycles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cycle_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.workouts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_workouts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.recipes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_recipes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.fasting_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.nutrition_data ENABLE ROW LEVEL SECURITY;
 
--- Enable RLS (Row Level Security) for security
-ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE lifestyle_areas ENABLE ROW LEVEL SECURITY;
-ALTER TABLE daily_notes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE cycle_calculations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_daily_selections ENABLE ROW LEVEL SECURITY;
+-- user_profiles: Users can only read/update their own profile
+CREATE POLICY "Users can read own profile" ON public.user_profiles
+  FOR SELECT USING (auth.uid() = id);
 
--- Reference tables are public - disable RLS for them
-ALTER TABLE cycle_phases DISABLE ROW LEVEL SECURITY;
-ALTER TABLE lifestyle_categories DISABLE ROW LEVEL SECURITY;
-ALTER TABLE cycle_phase_recommendations DISABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can update own profile" ON public.user_profiles
+  FOR UPDATE USING (auth.uid() = id);
 
--- Grant permissions to authenticated users on tables with RLS
-GRANT SELECT, INSERT, UPDATE, DELETE ON user_profiles TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON lifestyle_areas TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON daily_notes TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON cycle_calculations TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON user_daily_selections TO authenticated;
+CREATE POLICY "Users can insert own profile" ON public.user_profiles
+  FOR INSERT WITH CHECK (auth.uid() = id);
 
--- Grant SELECT permissions to anon role for public reference tables
-GRANT SELECT ON cycle_phases TO anon;
-GRANT SELECT ON lifestyle_categories TO anon;
-GRANT SELECT ON cycle_phase_recommendations TO anon;
-
--- Create RLS policies for user_profiles (users can only access their own)
-CREATE POLICY "Users can view their own profile" ON user_profiles
+-- cycles: Users can only access their own cycles
+CREATE POLICY "Users can read own cycles" ON public.cycles
   FOR SELECT USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can update their own profile" ON user_profiles
-  FOR UPDATE USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert their own profile" ON user_profiles
+CREATE POLICY "Users can insert own cycles" ON public.cycles
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY "Users can delete their own profile" ON user_profiles
+CREATE POLICY "Users can update own cycles" ON public.cycles
+  FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own cycles" ON public.cycles
   FOR DELETE USING (auth.uid() = user_id);
 
--- Create RLS policies for lifestyle_areas
-CREATE POLICY "Users can view their own lifestyle areas" ON lifestyle_areas
+-- cycle_entries: Users can only access their own entries
+CREATE POLICY "Users can read own cycle entries" ON public.cycle_entries
   FOR SELECT USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can insert lifestyle areas" ON lifestyle_areas
+CREATE POLICY "Users can insert own cycle entries" ON public.cycle_entries
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY "Users can update lifestyle areas" ON lifestyle_areas
+CREATE POLICY "Users can update own cycle entries" ON public.cycle_entries
   FOR UPDATE USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can delete lifestyle areas" ON lifestyle_areas
+CREATE POLICY "Users can delete own cycle entries" ON public.cycle_entries
   FOR DELETE USING (auth.uid() = user_id);
 
--- Create RLS policies for daily_notes
-CREATE POLICY "Users can view their own notes" ON daily_notes
+-- workouts: Users can only access their own workouts
+CREATE POLICY "Users can read own workouts" ON public.workouts
   FOR SELECT USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can insert notes" ON daily_notes
+CREATE POLICY "Users can insert own workouts" ON public.workouts
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY "Users can update notes" ON daily_notes
+CREATE POLICY "Users can update own workouts" ON public.workouts
   FOR UPDATE USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can delete notes" ON daily_notes
+CREATE POLICY "Users can delete own workouts" ON public.workouts
   FOR DELETE USING (auth.uid() = user_id);
 
--- Create RLS policies for cycle_calculations
-CREATE POLICY "Users can view their own calculations" ON cycle_calculations
+-- user_workouts: Users can only access their own user_workouts
+CREATE POLICY "Users can read own user_workouts" ON public.user_workouts
   FOR SELECT USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can insert calculations" ON cycle_calculations
+CREATE POLICY "Users can insert own user_workouts" ON public.user_workouts
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY "Users can update calculations" ON cycle_calculations
+CREATE POLICY "Users can update own user_workouts" ON public.user_workouts
   FOR UPDATE USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can delete calculations" ON cycle_calculations
+CREATE POLICY "Users can delete own user_workouts" ON public.user_workouts
   FOR DELETE USING (auth.uid() = user_id);
 
--- Create RLS policies for user_daily_selections
-CREATE POLICY "Users can view their own selections" ON user_daily_selections
+-- recipes: Everyone can read recipes (they're canonical), users can insert custom ones
+CREATE POLICY "Anyone can read recipes" ON public.recipes
+  FOR SELECT USING (TRUE);
+
+CREATE POLICY "Users can insert custom recipes" ON public.recipes
+  FOR INSERT WITH CHECK (is_custom = TRUE);
+
+-- user_recipes: Users can only access their own user_recipes
+CREATE POLICY "Users can read own user_recipes" ON public.user_recipes
   FOR SELECT USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can insert selections" ON user_daily_selections
+CREATE POLICY "Users can insert own user_recipes" ON public.user_recipes
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY "Users can update selections" ON user_daily_selections
+CREATE POLICY "Users can update own user_recipes" ON public.user_recipes
   FOR UPDATE USING (auth.uid() = user_id);
 
-CREATE POLICY "Users can delete selections" ON user_daily_selections
+CREATE POLICY "Users can delete own user_recipes" ON public.user_recipes
   FOR DELETE USING (auth.uid() = user_id);
 
--- Insert reference cycle phases
-INSERT INTO cycle_phases (phase_name, phase_type, description) VALUES
-  ('Menstrual', 'MENSTRUAL', 'Shedding of uterine lining'),
-  ('Follicular', 'FOLLICULAR', 'Growth phase with increasing estrogen'),
-  ('Ovulation', 'OVULATION', 'Egg release - most fertile phase'),
-  ('Luteal', 'LUTEAL', 'Progesterone dominance, preparation for menstruation')
-ON CONFLICT (phase_name) DO NOTHING;
+-- fasting_sessions: Users can only access their own sessions
+CREATE POLICY "Users can read own fasting sessions" ON public.fasting_sessions
+  FOR SELECT USING (auth.uid() = user_id);
 
--- Insert reference lifestyle categories
-INSERT INTO lifestyle_categories (category_name, description) VALUES
-  ('Nutrition', 'Personalized nutrition and food recommendations'),
-  ('Fitness', 'Workout and exercise recommendations'),
-  ('Fasting', 'Intermittent fasting recommendations')
-ON CONFLICT (category_name) DO NOTHING;
+CREATE POLICY "Users can insert own fasting sessions" ON public.fasting_sessions
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
 
--- Insert adaptive cycle syncing recommendations
-INSERT INTO cycle_phase_recommendations (phase_name, lifestyle_phase, hormonal_state, food_vibe, food_recipes, workout_mode, workout_types, fasting_beginner, fasting_advanced, day_range_start, day_range_end, description) VALUES
-  ('Menstrual', 'Glow Reset', 'Low E, Low P', 'Gut-Friendly Low-Carb', 'Lentil & Spinach Stew • Beetroot & Quinoa Salad • Moroccan Chickpea Tagine • Black Bean Chili con Carne • Braised Kale & White Beans • Red Lentil & Carrot Soup', 'Low-Impact Workout', 'Walking • Rest • Hot Girl Walk • Yoga • Mat Pilates • Foam rolling • Low-Impact Strength Training', 'Short Fast (13h)', 'Medium Fast (15h)', 1, 4, 'Early to mid menstrual phase'),
-  ('Menstrual', 'Glow Reset', 'Low E, Low P', 'Gut-Friendly Low-Carb', 'Lentil & Spinach Stew • Beetroot & Quinoa Salad • Moroccan Chickpea Tagine • Black Bean Chili con Carne • Braised Kale & White Beans • Red Lentil & Carrot Soup', 'Low-Impact Workout', 'Walking • Mat Pilates • Hot Girl Walk • Restorative Flow • Yoga • Low-Impact Strength Training', 'Medium Fast (15h)', 'Medium Fast (15h)', 5, 5, 'Late menstrual phase'),
-  ('Follicular', 'Power Up', 'Rising E', 'Gut-Friendly Low-Carb', 'Grilled Salmon with Quinoa & Greens • Chicken & Broccoli Stir-Fry • Tofu & Vegetable Power Bowl • Shrimp & Zucchini Noodles • Turkey & Spinach Meatballs • Eggplant & Chickpea Curry', 'Moderate to High-Intensity Workout', 'Cardio • 12-3-30 Treadmill • Incline walking • HIIT • Cycling • Spin class • Strength Training • Reformer Pilates • Power yoga', 'Long Fast (17h)', 'Extended Fast (24h)', 6, 6, 'Early follicular phase - day after menstruation'),
-  ('Follicular', 'Power Up', 'Rising E', 'Gut-Friendly Low-Carb', 'Grilled Salmon with Quinoa & Greens • Chicken & Broccoli Stir-Fry • Tofu & Vegetable Power Bowl • Shrimp & Zucchini Noodles • Turkey & Spinach Meatballs • Eggplant & Chickpea Curry', 'Moderate to High-Intensity Workout', 'Cardio • 12-3-30 Treadmill • Incline walking • HIIT • Cycling • Spin Class • Strength Training • Reformer Pilates • Power yoga', 'Long Fast (17h)', 'Long Fast (17h)', 7, 10, 'Early follicular phase - energy rising'),
-  ('Follicular', 'Main Character', 'Peak E', 'Carb-Boost Hormone Fuel', 'Mediterranean Grain Bowl • Sweet Potato & Black Bean Tacos • Pasta Primavera • Mango & Avocado Salad • Quinoa Tabouleh • Roasted Vegetable Couscous', 'Strength & Resistance', 'Strength Training • Heavy lifting • Strength Reformer Pilates', 'Short Fast (13h)', 'Medium Fast (15h)', 11, 12, 'Late follicular phase - pre-ovulation'),
-  ('Ovulation', 'Main Character', 'Peak E', 'Carb-Boost Hormone Fuel', 'Mediterranean Grain Bowl • Sweet Potato & Black Bean Tacos • Pasta Primavera • Mango & Avocado Salad • Quinoa Tabouleh • Roasted Vegetable Couscous', 'Strength & Resistance', 'Heavy lifting • Strength Training • Strength Reformer Pilates', 'Short Fast (13h)', 'Long Fast (17h)', 13, 15, 'Ovulation window - peak fertility'),
-  ('Luteal', 'Power Up', 'Declining E, Rising P', 'Gut-Friendly Low-Carb', 'Turkey & Vegetable Stir-Fry • Lentil & Carrot Curry • Cauliflower Rice Buddha Bowl • Chickpea & Spinach Sauté • Grilled Chicken with Brussels Sprouts • Tempeh & Broccoli Stir-Fry', 'Moderate to High-Intensity Workout', 'Spin Class • Strength Training • Endurance Runs • Circuits • Power yoga • Reformer Pilates', 'Medium Fast (15h)', 'Long Fast (17h)', 16, 19, 'Early luteal phase'),
-  ('Luteal', 'Cozy Care', 'Low E, High P', 'Carb-Boost Hormone Fuel', 'Pumpkin Soup with Wholegrain Bread • Roasted Sweet Potato & Kale Bowl • Baked Salmon with Brown Rice Pilaf • Cozy Vegetable Stew with Barley • Butternut Squash Risotto • Apple & Cinnamon Overnight Oats', 'Moderate to Low-Impact Strength', 'Hot Girl Walk • Low-Impact Strength Training • Reformer Pilates • Mat Pilates • Swimming', 'No Fast', 'Short Fast (13h)', 20, 28, 'Late luteal phase - before menstruation')
-ON CONFLICT (phase_name, day_range_start, day_range_end) DO NOTHING;
+CREATE POLICY "Users can update own fasting sessions" ON public.fasting_sessions
+  FOR UPDATE USING (auth.uid() = user_id);
 
--- Disable RLS on reference tables (these are read-only curated data, not user-specific)
-ALTER TABLE cycle_phase_recommendations DISABLE ROW LEVEL SECURITY;
-ALTER TABLE cycle_phases DISABLE ROW LEVEL SECURITY;
-ALTER TABLE lifestyle_categories DISABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can delete own fasting sessions" ON public.fasting_sessions
+  FOR DELETE USING (auth.uid() = user_id);
 
--- Grant SELECT permissions to authenticated users for reference tables
-GRANT SELECT ON cycle_phases TO authenticated;
-GRANT SELECT ON lifestyle_categories TO authenticated;
-GRANT SELECT ON cycle_phase_recommendations TO authenticated;
+-- nutrition_data: Users can only access their own nutrition data
+CREATE POLICY "Users can read own nutrition data" ON public.nutrition_data
+  FOR SELECT USING (auth.uid() = user_id);
 
--- User profiles and lifestyle area selections are created dynamically when users sign up and complete onboarding
+CREATE POLICY "Users can insert own nutrition data" ON public.nutrition_data
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own nutrition data" ON public.nutrition_data
+  FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own nutrition data" ON public.nutrition_data
+  FOR DELETE USING (auth.uid() = user_id);
+
+-- ============================================================================
+-- PART 5: SAMPLE DATA (RECIPES)
+-- ============================================================================
+
+-- Menstrual phase recipes
+INSERT INTO public.recipes (
+  name, description, calories, protein_g, carbs_g, fat_g, fiber_g,
+  prep_time_minutes, cook_time_minutes, servings,
+  meal_type, cuisine_type, dietary_tags, associated_phases, food_vibe,
+  is_custom
+) VALUES
+('Lentil & Spinach Stew', 'Hearty, iron-rich stew perfect for menstrual phase', 280, 15, 35, 6, 8, 10, 25, 1, 'Lunch', 'Mediterranean', '{"Vegetarian", "Gluten-Free"}', '{"Menstrual"}', 'Gut-Friendly Low-Carb', FALSE),
+('Beetroot & Quinoa Salad', 'Iron-boosting salad with earthy beets', 320, 12, 38, 12, 6, 15, 0, 1, 'Lunch', 'Mediterranean', '{"Vegetarian", "Gluten-Free"}', '{"Menstrual"}', 'Gut-Friendly Low-Carb', FALSE),
+('Moroccan Chickpea Tagine', 'Warming spiced chickpea stew', 350, 14, 42, 10, 9, 15, 30, 1, 'Dinner', 'North African', '{"Vegetarian", "Vegan"}', '{"Menstrual"}', 'Gut-Friendly Low-Carb', FALSE),
+
+-- Follicular phase recipes
+('Grilled Salmon with Quinoa & Greens', 'High-protein salmon power bowl', 450, 35, 35, 18, 5, 15, 20, 1, 'Dinner', 'Mediterranean', '{"Gluten-Free"}', '{"Follicular"}', 'Gut-Friendly Low-Carb', FALSE),
+('Chicken & Broccoli Stir-Fry', 'Energizing stir-fry with lean protein', 380, 38, 28, 12, 6, 15, 15, 1, 'Dinner', 'Asian', '{"Gluten-Free"}', '{"Follicular"}', 'Gut-Friendly Low-Carb', FALSE),
+
+-- Ovulation phase recipes
+('Mediterranean Grain Bowl', 'Nutrient-dense grain bowl with vegetables', 420, 16, 52, 14, 8, 15, 0, 1, 'Lunch', 'Mediterranean', '{"Vegetarian"}', '{"Ovulation"}', 'Carb-Boost Hormone Fuel', FALSE),
+('Sweet Potato & Black Bean Tacos', 'Colorful, carb-rich tacos', 380, 14, 48, 14, 9, 15, 20, 1, 'Dinner', 'Mexican', '{"Vegetarian", "Vegan"}', '{"Ovulation"}', 'Carb-Boost Hormone Fuel', FALSE),
+
+-- Luteal phase recipes
+('Pumpkin Soup with Wholegrain Bread', 'Cozy, nourishing soup', 320, 12, 42, 10, 7, 10, 20, 1, 'Lunch', 'European', '{"Vegetarian"}', '{"Luteal"}', 'Carb-Boost Hormone Fuel', FALSE),
+('Baked Salmon with Brown Rice Pilaf', 'Magnesium-rich comfort dinner', 480, 38, 42, 18, 6, 15, 30, 1, 'Dinner', 'Mediterranean', '{"Gluten-Free"}', '{"Luteal"}', 'Carb-Boost Hormone Fuel', FALSE);
+
+-- ============================================================================
+-- PART 6: VERIFICATION QUERIES
+-- ============================================================================
+
+-- Run these queries to verify the schema was created successfully:
+
+/*
+-- Check all tables exist
+SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name;
+
+-- Check user_profiles structure
+\d public.user_profiles
+
+-- Check RLS policies
+SELECT tablename, policyname, permissive, roles, qual FROM pg_policies ORDER BY tablename;
+
+-- Check sample recipes
+SELECT name, food_vibe, associated_phases FROM public.recipes LIMIT 5;
+
+-- Check indexes
+SELECT tablename, indexname FROM pg_indexes WHERE schemaname = 'public' ORDER BY tablename;
+*/
+
+-- ============================================================================
+-- END OF SCHEMA
+-- ============================================================================

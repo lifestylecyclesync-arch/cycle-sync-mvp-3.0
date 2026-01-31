@@ -31,27 +31,27 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-
+  
   # State Management
   flutter_riverpod: ^3.1.0
-  riverpod_generator: ^4.0.0+1
-
-  # Supabase
-  supabase_flutter: ^2.12.0
-
-  # Caching & Offline
-  hive_flutter: ^1.1.0
+  riverpod_annotation: ^4.0.0
+  freezed_annotation: ^3.0.0
+  json_annotation: ^4.8.0
+  
+  # Backend
+  supabase_flutter: ^2.0.0
+  
+  # Navigation (optional, can use built-in routing)
+  go_router: ^13.0.0
+  
+  # Storage
   shared_preferences: ^2.2.0
-
-  # Image Handling
-  image_picker: ^1.0.0
-
-  # Error Handling & Functional Programming
-  dartz: ^0.10.0
-
+  
+  # Utilities
+  uuid: ^4.0.0
+  intl: ^0.19.0
+  
   # Logging
   logger: ^2.0.0
 
@@ -59,23 +59,12 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
-  # The "flutter_lints" package below contains a set of recommended lints to
-  # encourage good coding practices. The lint set provided by the package is
-  # activated in the `analysis_options.yaml` file located at the root of your
-  # package. See that file for information about deactivating specific lint
-  # rules and activating additional ones.
   flutter_lints: ^6.0.0
-
-  # Code Generation
+  
+  # Code generation
   build_runner: ^2.4.0
-
-  # Testing
-  mocktail: ^1.0.0
-  bloc_test: ^10.0.0
-
-# Override transitive dependency that's incompatible with current Flutter API
-dependency_overrides:
-  sign_in_with_apple: ^7.0.1
+  riverpod_generator: ^4.0.0
+  json_serializable: ^6.7.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

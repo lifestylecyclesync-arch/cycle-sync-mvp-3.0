@@ -1,152 +1,236 @@
-import 'package:flutter/material.dart';
-
-/// App-wide design system constants
-/// Easily configurable for future theme changes
+/// Cycle Sync App-wide Constants
+/// Cycle calculations, thresholds, and durations
 class AppConstants {
-  // ============================================
-  // Spacing & Layout
-  // ============================================
-  static const double spacingXs = 4.0;
-  static const double spacingSm = 8.0;
-  static const double spacingMd = 16.0;
-  static const double spacingLg = 24.0;
-  static const double spacingXl = 32.0;
-  static const double spacingXxl = 48.0;
-
-  static const double paddingDefault = spacingMd;
-  static const double paddingLarge = spacingLg;
-
-  // Border radius
-  static const double borderRadiusSmall = 8.0;
-  static const double borderRadiusMedium = 12.0;
-  static const double borderRadiusLarge = 16.0;
-  static const double borderRadiusCircle = 50.0;
-
-  // ============================================
-  // Typography
-  // ============================================
-  static const String fontFamilyPrimary = 'Roboto'; // Material default
-
-  static const FontWeight fontWeightThin = FontWeight.w100;
-  static const FontWeight fontWeightLight = FontWeight.w300;
-  static const FontWeight fontWeightRegular = FontWeight.w400;
-  static const FontWeight fontWeightMedium = FontWeight.w500;
-  static const FontWeight fontWeightSemiBold = FontWeight.w600;
-  static const FontWeight fontWeightBold = FontWeight.w700;
-  static const FontWeight fontWeightExtraBold = FontWeight.w800;
-
-  // Font sizes
-  static const double fontSizeXs = 12.0;
-  static const double fontSizeSm = 14.0;
-  static const double fontSizeMd = 16.0;
-  static const double fontSizeLg = 18.0;
-  static const double fontSizeXl = 20.0;
-  static const double fontSizeXxl = 24.0;
-  static const double fontSizeHuge = 32.0;
-
-  // Line heights
-  static const double lineHeightTight = 1.2;
-  static const double lineHeightNormal = 1.5;
-  static const double lineHeightRelaxed = 1.75;
-
-  // ============================================
-  // Colors (Minimalist Palette)
-  // ============================================
-
-  // Neutral colors
-  static const Color colorWhite = Color(0xFFFFFFFF);
-  static const Color colorBlack = Color(0xFF000000);
-  static const Color colorGray50 = Color(0xFFFAFAFA);
-  static const Color colorGray100 = Color(0xFFF5F5F5);
-  static const Color colorGray200 = Color(0xFFEEEEEE);
-  static const Color colorGray300 = Color(0xFFE0E0E0);
-  static const Color colorGray400 = Color(0xFFBDBDBD);
-  static const Color colorGray500 = Color(0xFF9E9E9E);
-  static const Color colorGray600 = Color(0xFF757575);
-  static const Color colorGray700 = Color(0xFF616161);
-  static const Color colorGray800 = Color(0xFF424242);
-  static const Color colorGray900 = Color(0xFF212121);
-
-  // Semantic colors
-  static const Color colorPrimary = Color(0xFF6A4C93); // Deep Purple
-  static const Color colorPrimaryLight = Color(0xFFA78BCC);
-  static const Color colorPrimaryDark = Color(0xFF4A2C73);
-
-  static const Color colorSuccess = Color(0xFF4CAF50); // Green
-  static const Color colorWarning = Color(0xFFFFA500); // Orange
-  static const Color colorError = Color(0xFFE53935); // Red
-  static const Color colorInfo = Color(0xFF2196F3); // Blue
-
-  // Background
-  static const Color colorBackground = colorWhite;
-  static const Color colorBackgroundLight = colorGray50;
-  static const Color colorBackgroundLighter = colorGray100;
-
-  // Text colors
-  static const Color colorTextPrimary = colorGray900;
-  static const Color colorTextSecondary = colorGray600;
-  static const Color colorTextTertiary = colorGray500;
-  static const Color colorTextPlaceholder = colorGray400;
-
-  // ============================================
-  // Opacity & Transparency
-  // ============================================
-  static const double opacityDisabled = 0.5;
-  static const double opacityHover = 0.8;
-  static const double opacityPhaseLight = 0.3; // Transparent phase circles
-  static const double opacityPhaseMedium = 0.35;
-  static const double opacityPhaseHeavy = 0.4;
-
-  // ============================================
-  // Component sizes
-  // ============================================
-  static const double buttonHeightSmall = 40.0;
-  static const double buttonHeightMedium = 48.0;
-  static const double buttonHeightLarge = 56.0;
-
-  static const double iconSizeSmall = 16.0;
-  static const double iconSizeMedium = 24.0;
-  static const double iconSizeLarge = 32.0;
-  static const double iconSizeXl = 48.0;
-
-  static const double avatarSizeSmall = 32.0;
-  static const double avatarSizeMedium = 48.0;
-  static const double avatarSizeLarge = 64.0;
-  static const double avatarSizeXl = 96.0;
-
-  // ============================================
-  // Animations
-  // ============================================
-  static const Duration durationQuick = Duration(milliseconds: 150);
-  static const Duration durationNormal = Duration(milliseconds: 300);
-  static const Duration durationSlow = Duration(milliseconds: 500);
-
-  // ============================================
-  // Shadows
-  // ============================================
-  static const BoxShadow shadowSmall = BoxShadow(
-    color: Color(0x12000000),
-    blurRadius: 2,
-    offset: Offset(0, 1),
-  );
-
-  static const BoxShadow shadowMedium = BoxShadow(
-    color: Color(0x1A000000),
-    blurRadius: 4,
-    offset: Offset(0, 2),
-  );
-
-  static const BoxShadow shadowLarge = BoxShadow(
-    color: Color(0x26000000),
-    blurRadius: 8,
-    offset: Offset(0, 4),
-  );
-
-  // ============================================
-  // Misc
-  // ============================================
-  static const double dividerThickness = 1.0;
-  static const double bottomNavBarHeight = 64.0;
-  static const double appBarHeight = 56.0;
+  // ============================================================================
+  // CYCLE PARAMETERS - Based on menstrual research
+  // ============================================================================
+  
+  /// Typical menstrual cycle length in days (28 ± 7)
+  static const int typicalCycleLength = 28;
+  
+  /// Minimum cycle length (lower bound) - 21 days
+  static const int minCycleLength = 21;
+  
+  /// Maximum cycle length (upper bound) - 35 days
+  static const int maxCycleLength = 35;
+  
+  /// Typical menstrual period length in days
+  static const int typicalMenstrualLength = 5;
+  
+  /// Minimum menstrual period length - 2 days
+  static const int minMenstrualLength = 2;
+  
+  /// Maximum menstrual period length - 10 days
+  static const int maxMenstrualLength = 10;
+  
+  // ============================================================================
+  // PHASE DURATIONS (in days) - For 28-day cycle
+  // ============================================================================
+  
+  /// Menstrual phase - days 1-5
+  static const int menstrualPhaseDays = 5;
+  
+  /// Follicular phase - days 1-13 (overlaps with menstrual)
+  static const int follicularPhaseDays = 13;
+  
+  /// Ovulation phase - days 13-15 (peak fertility)
+  static const int ovulationPhaseDays = 3;
+  
+  /// Luteal phase - days 16-28
+  static const int lutealPhaseDays = 13;
+  
+  /// Default luteal phase length if not specified
+  static const int defaultLutealLength = 14;
+  
+  // ============================================================================
+  // OVULATION CALCULATION
+  // ============================================================================
+  
+  /// Day of ovulation from cycle start (14th day for 28-day cycle)
+  static const int ovulationDayOffset = 14;
+  
+  /// Fertile window starts N days before ovulation
+  static const int fertileWindowPreOvulation = 5;
+  
+  /// Fertile window ends N days after ovulation
+  static const int fertileWindowPostOvulation = 1;
+  
+  // ============================================================================
+  // PMS/PMDD THRESHOLDS
+  // ============================================================================
+  
+  /// Days before menstruation when PMS typically starts
+  static const int pmsDaysBeforeMenstruation = 5;
+  
+  /// Minimum severity score (1-5 scale) to mark as PMS day
+  static const int pmsMinimumSeverity = 2;
+  
+  // ============================================================================
+  // HYDRATION & NUTRITION
+  // ============================================================================
+  
+  /// Recommended daily water intake in mL
+  static const int recommendedDailyWaterMl = 2000;
+  
+  /// Recommended daily caffeine limit in mg
+  static const int recommendedDailyCaffeineLimitMg = 400;
+  
+  /// Recommended iron intake during menstruation (mg)
+  static const int ironIntakeMenstruation = 18;
+  
+  /// Recommended iron intake outside menstruation (mg)
+  static const int ironIntakeNormal = 15;
+  
+  // ============================================================================
+  // SLEEP & ENERGY
+  // ============================================================================
+  
+  /// Recommended sleep duration (hours) - general
+  static const int recommendedSleepHours = 8;
+  
+  /// Recommended minimum sleep hours
+  static const int minimumSleepHours = 7;
+  
+  // ============================================================================
+  // ANIMATION DURATIONS
+  // ============================================================================
+  
+  /// Fast animation duration (ms) - UI elements, transitions
+  static const Duration animationDurationFast = Duration(milliseconds: 200);
+  
+  /// Standard animation duration (ms) - default transitions
+  static const Duration animationDurationStandard = Duration(milliseconds: 300);
+  
+  /// Slow animation duration (ms) - complex animations
+  static const Duration animationDurationSlow = Duration(milliseconds: 500);
+  
+  /// Very slow animation duration (ms) - emphasis animations
+  static const Duration animationDurationVerySlow = Duration(milliseconds: 800);
+  
+  // ============================================================================
+  // TIME CONSTRAINTS
+  // ============================================================================
+  
+  /// Session timeout duration (15 minutes)
+  static const Duration sessionTimeoutDuration = Duration(minutes: 15);
+  
+  /// Cache expiration time (1 hour)
+  static const Duration cacheExpirationDuration = Duration(hours: 1);
+  
+  /// Debounce duration for text input (300ms)
+  static const Duration debounceTextInputDuration = Duration(milliseconds: 300);
+  
+  /// Debounce duration for API calls (500ms)
+  static const Duration debounceApiCallDuration = Duration(milliseconds: 500);
+  
+  // ============================================================================
+  // UI CONSTRAINTS
+  // ============================================================================
+  
+  /// Maximum width for content on tablet/desktop screens (px)
+  static const double maxContentWidth = 600.0;
+  
+  /// Standard FAB size - 56px (Material spec)
   static const double fabSize = 56.0;
+  
+  /// Small FAB size - 40px
+  static const double fabSizeSmall = 40.0;
+  
+  /// Maximum snackbar width (px)
+  static const double maxSnackbarWidth = 500.0;
+  
+  // ============================================================================
+  // DATETIME FORMATS
+  // ============================================================================
+  
+  /// Date format for display: "Jan 15, 2024"
+  static const String dateFormatDisplay = 'MMM d, yyyy';
+  
+  /// Date format for storage: "2024-01-15"
+  static const String dateFormatStorage = 'yyyy-MM-dd';
+  
+  /// Time format: "2:30 PM"
+  static const String timeFormatDisplay = 'h:mm a';
+  
+  /// Time format 24-hour: "14:30"
+  static const String timeFormat24Hour = 'HH:mm';
+  
+  /// DateTime format with time: "Jan 15, 2024, 2:30 PM"
+  static const String dateTimeFormatDisplay = 'MMM d, yyyy, h:mm a';
+  
+  // ============================================================================
+  // VALIDATION
+  // ============================================================================
+  
+  /// Minimum password length
+  static const int minPasswordLength = 8;
+  
+  /// Minimum email length
+  static const int minEmailLength = 5;
+  
+  /// Maximum email length
+  static const int maxEmailLength = 254;
+  
+  /// Maximum cycle note length (characters)
+  static const int maxCycleNoteLength = 500;
+  
+  /// Maximum user bio length (characters)
+  static const int maxUserBioLength = 160;
+  
+  // ============================================================================
+  // PAGINATION & LISTS
+  // ============================================================================
+  
+  /// Default page size for paginated lists
+  static const int defaultPageSize = 20;
+  
+  /// Maximum list items to load before pagination
+  static const int maxListItemsBeforePagination = 50;
+  
+  // ============================================================================
+  // TRACKING PARAMETERS
+  // ============================================================================
+  
+  /// Maximum number of symptoms that can be logged per day
+  static const int maxSymptomsPerDay = 10;
+  
+  /// Maximum number of workout entries per day
+  static const int maxWorkoutsPerDay = 5;
+  
+  /// Maximum number of meal entries per day
+  static const int maxMealsPerDay = 6;
+  
+  /// Maximum number of fasting logs per day
+  static const int maxFastingLogsPerDay = 1;
+  
+  // ============================================================================
+  // HELPER METHODS
+  // ============================================================================
+  
+  /// Get cycle length in days
+  static int getCycleLength({int? customCycleLength}) {
+    if (customCycleLength != null) {
+      return customCycleLength.clamp(minCycleLength, maxCycleLength);
+    }
+    return typicalCycleLength;
+  }
+  
+  /// Calculate ovulation day for given cycle length
+  static int calculateOvulationDay(int cycleLength) {
+    // Typical formula: Cycle length - 14 days
+    // For 28 day cycle: 28 - 14 = 14 (day 14 of cycle)
+    return cycleLength - 14;
+  }
+  
+  /// Calculate fertile window start day
+  static int calculateFertileWindowStart(int cycleLength) {
+    final ovulationDay = calculateOvulationDay(cycleLength);
+    return (ovulationDay - fertileWindowPreOvulation).clamp(1, cycleLength);
+  }
+  
+  /// Calculate fertile window end day
+  static int calculateFertileWindowEnd(int cycleLength) {
+    final ovulationDay = calculateOvulationDay(cycleLength);
+    return (ovulationDay + fertileWindowPostOvulation).clamp(1, cycleLength);
+  }
 }

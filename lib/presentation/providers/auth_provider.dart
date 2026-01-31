@@ -1,79 +1,74 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:cycle_sync_mvp_2/core/services/auth_service.dart';
 import 'package:cycle_sync_mvp_2/core/config/supabase_config.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:logger/logger.dart';
 
-/// Auth service provider
-final authServiceProvider = Provider<AuthService>((ref) {
-  return AuthService(SupabaseConfig.client);
+final _logger = Logger();
+
+/// Authentication state provider
+/// Manages current user session and auth state
+final authStateProvider = StreamProvider<AuthState>((ref) {
+  _logger.d('📡 Setting up auth state stream listener');
+  return SupabaseConfig.onAuthStateChange();
 });
 
-/// Current authenticated user
-final currentUserProvider = StreamProvider<User?>((ref) {
-  final authService = ref.watch(authServiceProvider);
-  final currentUser = authService.currentUser;
-  
-  // Create a stream that emits current value first, then listens for changes
-  return _emitCurrentThenChanges(
-    currentUser,
-    authService.watchAuthState().map((state) => state.session?.user),
+/// Current authenticated user provider
+/// Returns null if not authenticated
+final currentUserProvider = Provider<User?>((ref) {
+  final authState = ref.watch(authStateProvider);
+
+  return authState.whenData((state) {
+    final user = SupabaseConfig.currentUser;
+    if (user != null) {
+      _logger.d('👤 Current user: ${user.email}');
+    }
+    return user;
+  }).when(
+    data: (user) => user,
+    loading: () => null,
+    error: (err, stack) {
+      _logger.e('Error getting current user: $err');
+      return null;
+    },
   );
 });
 
-// Helper function to emit current value, then stream changes
-Stream<T> _emitCurrentThenChanges<T>(T current, Stream<T> changes) async* {
-  yield current;
-  yield* changes;
-}
+/// Current session provider
+/// Returns the current Supabase session
+final currentSessionProvider = Provider<Session?>((ref) {
+  final authState = ref.watch(authStateProvider);
 
-/// Authentication state
-final authStateProvider = StreamProvider<AuthState>((ref) {
-  final authService = ref.watch(authServiceProvider);
-  return authService.watchAuthState();
+  return authState.whenData((state) {
+    final session = SupabaseConfig.currentSession;
+    return session;
+  }).when(
+    data: (session) => session,
+    loading: () => null,
+    error: (err, stack) {
+      _logger.e('Error getting session: $err');
+      return null;
+    },
+  );
 });
 
-/// Check if user is authenticated
+/// Is user authenticated provider
+/// Returns true if user is logged in
 final isAuthenticatedProvider = Provider<bool>((ref) {
   final user = ref.watch(currentUserProvider);
-  return user.whenData((u) => u != null).value ?? false;
+  return user != null;
 });
 
-/// Current user ID
-final userIdProvider = Provider<String?>((ref) {
+/// User email provider
+/// Returns the email of current user, or null
+final userEmailProvider = Provider<String?>((ref) {
   final user = ref.watch(currentUserProvider);
-  return user.whenData((u) => u?.id).value;
+  return user?.email;
 });
 
-/// Sign up provider - allows signing up with email/password
-final signUpProvider = FutureProvider.family<void, ({String email, String password})>((ref, args) async {
-  final authService = ref.watch(authServiceProvider);
-  await authService.signUp(email: args.email, password: args.password);
+/// Sign out state notifier
+/// Handles sign out action
+final signOutProvider = FutureProvider.autoDispose<void>((ref) async {
+  _logger.i('🚪 Signing out...');
+  await SupabaseConfig.signOut();
+  _logger.i('✅ Sign out successful');
 });
-
-/// Sign in provider - allows signing in with email/password
-final signInProvider = FutureProvider.family<void, ({String email, String password})>((ref, args) async {
-  final authService = ref.watch(authServiceProvider);
-  await authService.signIn(email: args.email, password: args.password);
-});
-
-/// Sign out provider
-final signOutProvider = FutureProvider<void>((ref) async {
-  final authService = ref.watch(authServiceProvider);
-  await authService.signOut();
-});
-
-/// Signup mode state - tracks if user is in signup flow during onboarding
-final signupModeProvider = NotifierProvider<_SignupModeNotifier, bool>(() {
-  return _SignupModeNotifier();
-});
-
-class _SignupModeNotifier extends Notifier<bool> {
-  @override
-  bool build() {
-    return false;
-  }
-
-  void setSignupMode(bool isSignup) {
-    state = isSignup;
-  }
-}
