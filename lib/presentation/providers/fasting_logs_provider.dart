@@ -39,21 +39,21 @@ class FastingLog {
 
 final supabaseClient = Supabase.instance.client;
 
-/// Get today's fasting logs
-final todaysFastingLogsProvider = FutureProvider.autoDispose<List<FastingLog>>((ref) async {
+/// Get fasting logs for a specific date (defaults to today if null)
+final fastingLogsForDateProvider = FutureProvider.autoDispose.family<List<FastingLog>, DateTime?>((ref, selectedDate) async {
   final user = supabaseClient.auth.currentUser;
   if (user == null) return [];
 
-  final today = DateTime.now();
-  final todayDate = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+  final queryDate = selectedDate ?? DateTime.now();
+  final dateStr = '${queryDate.year}-${queryDate.month.toString().padLeft(2, '0')}-${queryDate.day.toString().padLeft(2, '0')}';
 
-  print('🔍 Querying fasting logs for date: $todayDate, user: ${user.id}');
+  print('🔍 Querying fasting logs for date: $dateStr, user: ${user.id}');
 
   final response = await supabaseClient
       .from('fasting_logs')
       .select()
       .eq('user_id', user.id)
-      .eq('fasting_date', todayDate)
+      .eq('fasting_date', dateStr)
       .order('created_at', ascending: false);
 
   print('📊 Fasting logs response: ${(response as List).length} logs found');
@@ -64,19 +64,29 @@ final todaysFastingLogsProvider = FutureProvider.autoDispose<List<FastingLog>>((
   return (response as List).map((log) => FastingLog.fromJson(log as Map<String, dynamic>)).toList();
 });
 
+/// Convenience provider for today's fasting logs
+final todaysFastingLogsProvider = FutureProvider.autoDispose<List<FastingLog>>((ref) async {
+  final asyncValue = ref.watch(fastingLogsForDateProvider(null));
+  return asyncValue.when(
+    data: (logs) => logs,
+    loading: () => throw Exception('Loading...'),
+    error: (e, st) => throw e,
+  );
+});
+
 /// Create fasting log
-final createFastingLogProvider = FutureProvider.autoDispose.family<void, (DateTime, DateTime, String?)>(
+final createFastingLogProvider = FutureProvider.autoDispose.family<void, (DateTime, DateTime, String?, DateTime?)>(
   (ref, params) async {
     final user = supabaseClient.auth.currentUser;
     if (user == null) throw Exception('Not authenticated');
 
-    final (startTime, endTime, notes) = params;
+    final (startTime, endTime, notes, selectedDate) = params;
 
     // Calculate duration in hours
     final duration = endTime.difference(startTime).inMinutes / 60.0;
     
-    final now = DateTime.now();
-    final dateOnly = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final dateToUse = selectedDate ?? DateTime.now();
+    final dateOnly = '${dateToUse.year}-${dateToUse.month.toString().padLeft(2, '0')}-${dateToUse.day.toString().padLeft(2, '0')}';
 
     print('💾 Inserting fasting log:');
     print('  fasting_date: $dateOnly');
@@ -94,10 +104,6 @@ final createFastingLogProvider = FutureProvider.autoDispose.family<void, (DateTi
     });
 
     print('✅ Fasting log inserted successfully');
-
-    if (ref.mounted) {
-      ref.invalidate(todaysFastingLogsProvider);
-    }
   },
 );
 
@@ -105,6 +111,5 @@ final createFastingLogProvider = FutureProvider.autoDispose.family<void, (DateTi
 final deleteFastingLogProvider = FutureProvider.autoDispose.family<void, String>(
   (ref, logId) async {
     await supabaseClient.from('fasting_logs').delete().eq('id', logId);
-    ref.invalidate(todaysFastingLogsProvider);
   },
 );

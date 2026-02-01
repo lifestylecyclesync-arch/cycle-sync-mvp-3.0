@@ -8,6 +8,7 @@ import 'package:cycle_sync_mvp_2/presentation/widgets/cycle_calendar_grid.dart';
 import 'package:cycle_sync_mvp_2/presentation/widgets/planner_card.dart';
 import 'package:cycle_sync_mvp_2/presentation/providers/phase_provider.dart' as phase_providers;
 import 'package:cycle_sync_mvp_2/presentation/providers/fitness_logs_provider.dart';
+import 'package:cycle_sync_mvp_2/presentation/providers/templates_provider.dart';
 import 'package:cycle_sync_mvp_2/presentation/providers/cycle_provider.dart' as cycle_providers;
 
 /// Fitness Screen
@@ -28,6 +29,9 @@ class _FitnessScreenState extends ConsumerState<FitnessScreen> {
     super.initState();
     _selectedDate = DateTime.now();
   }
+
+  /// Get the currently selected day (for dialog to use when adding workouts)
+  DateTime? getSelectedDay() => _selectedDay;
 
   void _previousMonth() {
     setState(() {
@@ -96,7 +100,6 @@ class _FitnessScreenState extends ConsumerState<FitnessScreen> {
               onDayTapped: _onDayTapped,
             ),
           ),
-          SizedBox(height: AppSpacing.xl),
 
           // Fitness plan section - updates based on selected day
           phaseDefsAsync.when(
@@ -144,24 +147,54 @@ class _FitnessScreenState extends ConsumerState<FitnessScreen> {
                           ? recommendations[0]
                           : null;
 
-                      return PlannerCard(
-                        title: 'Workout Suggestion',
-                        subtitle: '$displayPhase Phase - Day $cycleDay',
-                        headerIcon: Icons.fitness_center,
-                        accentColor: AppColors.blush,
-                        body: rec != null
-                            ? Text(
-                                'Workout Mode: ${rec['workout_mode'] ?? rec['title'] ?? 'Workout'}',
-                                style: AppTypography.body2.copyWith(
-                                  color: AppColors.textSecondary,
-                                ),
-                              )
-                            : Text(
-                                'No workout recommendation',
-                                style: AppTypography.body2.copyWith(
-                                  color: AppColors.textSecondary,
-                                ),
+                      // Watch daily template from database
+                      // Use normalized date (midnight) to avoid constant rebuilds
+                      final templateDate = _selectedDay ?? DateTime.now();
+                      final normalizedDate = DateTime(templateDate.year, templateDate.month, templateDate.day);
+                      final templateAsync = ref.watch(
+                        dailyTemplateProvider(('Fitness', normalizedDate)),
+                      );
+
+                      return templateAsync.when(
+                        data: (template) {
+                          // Debug: Log recommendation structure
+                          if (rec != null) {
+                            print('🏋️ [fitness_screen] Recommendation keys: ${rec.keys.toList()}');
+                            print('🏋️ [fitness_screen] Recommendation: $rec');
+                          }
+                          
+                          final templateText = template != null && rec != null
+                              ? template.fillTemplate(rec['workout_mode'] ?? rec['title'] ?? rec['recommendation_value'] ?? 'movement')
+                              : 'No workout recommendation';
+
+                          return PlannerCard(
+                            title: 'Day $cycleDay · $displayPhase phase',
+                            headerIcon: Icons.fitness_center,
+                            accentColor: AppColors.blush,
+                            body: Text(
+                              templateText,
+                              style: AppTypography.body2.copyWith(
+                                color: AppColors.textSecondary,
                               ),
+                            ),
+                          );
+                        },
+                        loading: () => PlannerCard(
+                          title: 'Day $cycleDay · $displayPhase phase',
+                          headerIcon: Icons.fitness_center,
+                          accentColor: AppColors.blush,
+                          body: const SizedBox(
+                            height: 50,
+                            child: Center(child: CircularProgressIndicator()),
+                          ),
+                        ),
+                        error: (err, stack) => PlannerCard(
+                          title: 'Workout Suggestion',
+                          headerIcon: Icons.fitness_center,
+                          accentColor: AppColors.blush,
+                          body: Text('Error loading template: $err',
+                              style: AppTypography.body2),
+                        ),
                       );
                     },
                     loading: () =>
@@ -187,9 +220,13 @@ class _FitnessScreenState extends ConsumerState<FitnessScreen> {
           SizedBox(height: AppSpacing.xl),
           Text('Workouts Plan', style: AppTypography.header2),
           SizedBox(height: AppSpacing.md),
-          ref.watch(todaysFitnessLogsProvider).when(
+          ref.watch(fitnessLogsForDateProvider(_selectedDay)).when(
             data: (logs) {
+              debugPrint('🏋️ [fitness_screen] Rendering workouts: ${logs.length} items for date: $_selectedDay');
               if (logs.isEmpty) {
+                final dateText = _selectedDay != null 
+                    ? 'No workouts logged for ${_selectedDay!.year}-${_selectedDay!.month}-${_selectedDay!.day}. Tap + to add one!'
+                    : 'No workouts logged today. Tap + to add one!';
                 return Container(
                   padding: const EdgeInsets.all(AppSpacing.lg),
                   decoration: BoxDecoration(
@@ -198,7 +235,7 @@ class _FitnessScreenState extends ConsumerState<FitnessScreen> {
                   ),
                   child: Center(
                     child: Text(
-                      'No workouts logged today. Tap + to add one!',
+                      dateText,
                       style: AppTypography.body2.copyWith(color: AppColors.textSecondary),
                     ),
                   ),
@@ -209,6 +246,7 @@ class _FitnessScreenState extends ConsumerState<FitnessScreen> {
                 children: logs.map((log) {
                   return Card(
                     margin: const EdgeInsets.only(bottom: AppSpacing.md),
+                    color: log.completed ? Colors.green[50] : null,
                     child: Padding(
                       padding: const EdgeInsets.all(AppSpacing.md),
                       child: Row(
@@ -218,9 +256,40 @@ class _FitnessScreenState extends ConsumerState<FitnessScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  log.activityType,
-                                  style: AppTypography.subtitle2,
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        log.activityType,
+                                        style: AppTypography.subtitle2.copyWith(
+                                          decoration: log.completed
+                                              ? TextDecoration.lineThrough
+                                              : null,
+                                          color: log.completed
+                                              ? AppColors.textSecondary
+                                              : null,
+                                        ),
+                                      ),
+                                    ),
+                                    if (log.completed)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: AppSpacing.sm,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.green[100],
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: Text(
+                                          'Completed',
+                                          style: AppTypography.caption.copyWith(
+                                            color: Colors.green[700],
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
                                 ),
                                 SizedBox(height: AppSpacing.xs),
                                 Row(
@@ -240,7 +309,7 @@ class _FitnessScreenState extends ConsumerState<FitnessScreen> {
                                       decoration: BoxDecoration(
                                         color: log.intensity == 'High'
                                             ? Colors.red[100]
-                                            : log.intensity == 'Medium'
+                                            : log.intensity == 'Moderate'
                                                 ? Colors.orange[100]
                                                 : Colors.blue[100],
                                         borderRadius: BorderRadius.circular(4),
@@ -261,14 +330,26 @@ class _FitnessScreenState extends ConsumerState<FitnessScreen> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               IconButton(
-                                onPressed: () {
-                                  // Mark as complete
+                                onPressed: () async {
+                                  await ref.read(toggleFitnessLogCompletionProvider(log.id).future);
+                                  // Invalidate both providers to refresh UI
+                                  ref.invalidate(todaysFitnessLogsProvider);
+                                  ref.invalidate(fitnessLogsForDateProvider);
                                 },
-                                icon: const Icon(Icons.check_circle_outline, size: 24, color: Colors.green),
+                                icon: Icon(
+                                  log.completed
+                                      ? Icons.check_circle
+                                      : Icons.check_circle_outline,
+                                  size: 24,
+                                  color: log.completed ? Colors.green : Colors.grey,
+                                ),
                               ),
                               IconButton(
-                                onPressed: () {
-                                  ref.read(deleteFitnessLogProvider(log.id));
+                                onPressed: () async {
+                                  await ref.read(deleteFitnessLogProvider(log.id).future);
+                                  // Invalidate both providers to refresh UI
+                                  ref.invalidate(todaysFitnessLogsProvider);
+                                  ref.invalidate(fitnessLogsForDateProvider);
                                 },
                                 icon: const Icon(Icons.delete, size: 20, color: Colors.red),
                               ),
@@ -281,8 +362,14 @@ class _FitnessScreenState extends ConsumerState<FitnessScreen> {
                 }).toList(),
               );
             },
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (err, stack) => Text('Error: $err'),
+            loading: () {
+              debugPrint('⏳ [fitness_screen] Loading workouts...');
+              return const Center(child: CircularProgressIndicator());
+            },
+            error: (err, stack) {
+              debugPrint('❌ [fitness_screen] Error loading workouts: $err');
+              return Text('Error: $err');
+            },
           ),
         ],
       ),

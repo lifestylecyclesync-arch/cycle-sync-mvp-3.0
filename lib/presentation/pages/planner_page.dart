@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../screens/my_cycle_screen.dart';
-import '../screens/fitness_screen.dart';
-import '../screens/diet_screen.dart';
-import '../screens/fasting_screen.dart';
-import '../screens/reports_screen.dart';
-import '../components/main_bottom_nav.dart';
-import '../components/dynamic_fab.dart';
+import 'screens/my_cycle_screen.dart';
+import 'screens/fitness_screen.dart';
+import 'screens/diet_screen.dart';
+import 'screens/fasting_screen.dart';
+import 'screens/reports_screen.dart';
+import '../widgets/main_bottom_nav.dart';
+import '../widgets/dynamic_fab.dart';
+import '../widgets/meal_plan_dialog.dart';
 import '../../core/theme/app_colors.dart';
 
 /// Main Planner Page - Manages tab navigation with IndexedStack
@@ -20,7 +21,7 @@ import '../../core/theme/app_colors.dart';
 /// 
 /// No conditional rendering, no filter logic
 class PlannerPage extends ConsumerStatefulWidget {
-  const PlannerPage({Key? key}) : super(key: key);
+  const PlannerPage({super.key});
 
   @override
   ConsumerState<PlannerPage> createState() => _PlannerPageState();
@@ -84,26 +85,22 @@ class _PlannerPageState extends ConsumerState<PlannerPage> {
     switch (index) {
       case 0: // My Cycle
         return DynamicFAB(
-          color: AppColors.lavender,
-          icon: Icons.add_rounded,
+          tabIndex: index,
           onPressed: _openCycleEntryModal,
         );
       case 1: // Fitness
         return DynamicFAB(
-          color: AppColors.blush,
-          icon: Icons.fitness_center_rounded,
+          tabIndex: index,
           onPressed: _openAddWorkoutModal,
         );
       case 2: // Diet
         return DynamicFAB(
-          color: AppColors.sage,
-          icon: Icons.restaurant_rounded,
+          tabIndex: index,
           onPressed: _openAddRecipeModal,
         );
       case 3: // Fasting
         return DynamicFAB(
-          color: AppColors.peach,
-          icon: Icons.schedule_rounded,
+          tabIndex: index,
           onPressed: _openLogFastingModal,
         );
       case 4: // Reports
@@ -129,10 +126,8 @@ class _PlannerPageState extends ConsumerState<PlannerPage> {
   }
 
   void _openAddRecipeModal() {
-    // TODO: Implement add recipe modal
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Add recipe modal')),
-    );
+    // Open meal planning dialog
+    showMealPlanDialog(context, ref);
   }
 
   void _openLogFastingModal() {

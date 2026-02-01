@@ -6,10 +6,11 @@ import 'package:cycle_sync_mvp_2/core/theme/app_spacing.dart';
 import 'package:cycle_sync_mvp_2/core/constants/app_constants.dart';
 import 'package:cycle_sync_mvp_2/presentation/widgets/month_selector.dart';
 import 'package:cycle_sync_mvp_2/presentation/widgets/cycle_calendar_grid.dart';
-import 'package:cycle_sync_mvp_2/presentation/widgets/cycle_calendar_grid.dart' show PhaseColorMap;
 import 'package:cycle_sync_mvp_2/presentation/widgets/cycle_info_card.dart';
+import 'package:cycle_sync_mvp_2/presentation/widgets/planner_card.dart';
 import 'package:cycle_sync_mvp_2/presentation/providers/cycle_provider.dart' as cycle_providers;
 import 'package:cycle_sync_mvp_2/presentation/providers/phase_provider.dart' as phase_providers;
+import 'package:cycle_sync_mvp_2/presentation/providers/templates_provider.dart';
 import 'package:logger/logger.dart';
 
 /// My Cycle Screen
@@ -377,7 +378,6 @@ class _MyCycleScreenState extends ConsumerState<MyCycleScreen> {
               onDayTapped: _onDayTapped,
             ),
           ),
-          SizedBox(height: AppSpacing.xl),
 
           // Cycle info cards
           phaseDefsAsync.when(
@@ -386,9 +386,27 @@ class _MyCycleScreenState extends ConsumerState<MyCycleScreen> {
                 data: (cycle) {
                   if (cycle == null) {
                     return Center(
-                      child: Text(
-                        'Add your cycle information to see phase details',
-                        style: AppTypography.body2,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            size: 48,
+                            color: AppColors.textTertiary,
+                          ),
+                          SizedBox(height: AppSpacing.md),
+                          Text(
+                            'Add your cycle information to see phase details',
+                            style: AppTypography.body2,
+                            textAlign: TextAlign.center,
+                          ),
+                          SizedBox(height: AppSpacing.lg),
+                          ElevatedButton.icon(
+                            onPressed: () => _showAddCycleDialog(context),
+                            icon: const Icon(Icons.add),
+                            label: const Text('Add Cycle Info'),
+                          ),
+                        ],
                       ),
                     );
                   }
@@ -413,21 +431,60 @@ class _MyCycleScreenState extends ConsumerState<MyCycleScreen> {
                   // Get phase color dynamically
                   final phaseColor = PhaseColorMap.getColor(displayPhase);
 
+                  // Watch daily template from database
+                  final templateDate = _selectedDay ?? DateTime.now();
+                  final normalizedDate = DateTime(templateDate.year, templateDate.month, templateDate.day);
+                  final templateAsync = ref.watch(
+                    dailyTemplateProvider(('My Cycle', normalizedDate)),
+                  );
+
                   return Column(
                     children: [
-                      // Current phase card with dynamic color
-                      CycleInfoCard(
-                        title: displayPhase,
-                        subtitle: 'Day $cycleDay of cycle',
-                        description: _selectedDay != null
-                            ? 'Cycle phase for selected date'
-                            : 'Current cycle phase',
-                        accentColor: phaseColor,
-                        icon: Icons.calendar_today,
+                      // Learn card with template from database
+                      templateAsync.when(
+                        data: (template) {
+                          // Build template text with both hormonal phase and lifestyle phase
+                          final lifestylePhase = AppConstants.getLifestyleName(displayPhase);
+                          final templateText = template != null
+                              ? template.fillTemplateMultiple([displayPhase, lifestylePhase])
+                              : 'You are in the $displayPhase phase of your cycle.';
+
+                          return PlannerCard(
+                            title: 'Day $cycleDay of $displayPhase phase',
+                            headerIcon: Icons.favorite,
+                            accentColor: phaseColor,
+                            body: Text(
+                              templateText,
+                              style: AppTypography.body2.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          );
+                        },
+                        loading: () => PlannerCard(
+                          title: 'Day $cycleDay of $displayPhase phase',
+                          headerIcon: Icons.favorite,
+                          accentColor: phaseColor,
+                          body: const SizedBox(
+                            height: 50,
+                            child: Center(child: CircularProgressIndicator()),
+                          ),
+                        ),
+                        error: (err, stack) => PlannerCard(
+                          title: 'Day $cycleDay of $displayPhase phase',
+                          headerIcon: Icons.favorite,
+                          accentColor: phaseColor,
+                          body: Text(
+                            'You are in the $displayPhase phase of your cycle.',
+                            style: AppTypography.body2.copyWith(
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ),
                       ),
                       SizedBox(height: AppSpacing.xl),
 
-                      // Fertile window card (if applicable)
+                      // Fertile window info card
                       if (displayPhase != 'Luteal')
                         CycleInfoCard(
                           title: isFertile ? 'Fertile Window' : 'Not in Fertile Window',
@@ -462,140 +519,5 @@ class _MyCycleScreenState extends ConsumerState<MyCycleScreen> {
         ],
       ),
     );
-  }
-
-  /// Build recommendation card widget
-  Widget _buildRecommendationCard({
-    required String title,
-    required String subtitle,
-    required String description,
-    required IconData icon,
-    required Color color,
-    int? fastingMin,
-    int? fastingMax,
-    String? fastingStyle,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        border: Border.all(color: color.withOpacity(0.3)),
-        borderRadius: BorderRadius.circular(AppSpacing.radiusSmall),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, color: color, size: 24),
-              SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: AppTypography.subtitle2.copyWith(
-                        color: color,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (subtitle.isNotEmpty)
-                      Text(
-                        subtitle,
-                        style: AppTypography.caption.copyWith(
-                          color: color.withOpacity(0.7),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: AppSpacing.sm),
-          Text(
-            description,
-            style: AppTypography.body2.copyWith(
-              color: AppColors.textPrimary,
-            ),
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-          ),
-          if (fastingMin != null && fastingMax != null) ...[
-            SizedBox(height: AppSpacing.sm),
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Fasting Window',
-                        style: AppTypography.caption.copyWith(
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      Text(
-                        '$fastingMin - $fastingMax hours',
-                        style: AppTypography.subtitle2.copyWith(
-                          color: color,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (fastingStyle != null)
-                  Chip(
-                    label: Text(
-                      fastingStyle,
-                      style: AppTypography.caption.copyWith(
-                        color: Colors.white,
-                      ),
-                    ),
-                    backgroundColor: color,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.sm,
-                      vertical: 2,
-                    ),
-                  ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  /// Get icon for phase
-  IconData _getPhaseIcon(String phase) {
-    switch (phase.toLowerCase()) {
-      case 'menstrual':
-        return Icons.favorite;
-      case 'follicular':
-        return Icons.energy_savings_leaf;
-      case 'ovulation':
-        return Icons.star;
-      case 'luteal':
-        return Icons.sentiment_satisfied;
-      default:
-        return Icons.help;
-    }
-  }
-
-  /// Get description for phase
-  String _getPhaseDescription(String phase) {
-    switch (phase.toLowerCase()) {
-      case 'menstrual':
-        return 'Your period has started. Rest and hydration are important. You may experience mild cramping and mood changes.';
-      case 'follicular':
-        return 'Estrogen levels are rising. You\'ll likely feel more energized and social. This is a great time for intense workouts.';
-      case 'ovulation':
-        return 'Your most fertile time! You may feel confident and attractive. Testosterone levels peak, giving you extra strength.';
-      case 'luteal':
-        return 'Progesterone is high. You may feel more introspective. Focus on rest, nutrition, and gentle activities. PMS may start.';
-      default:
-        return 'Track your cycle to see insights about this phase.';
-    }
   }
 }

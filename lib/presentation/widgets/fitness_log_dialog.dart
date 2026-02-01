@@ -3,160 +3,248 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cycle_sync_mvp_2/core/theme/app_colors.dart';
 import 'package:cycle_sync_mvp_2/core/theme/app_typography.dart';
 import 'package:cycle_sync_mvp_2/core/theme/app_spacing.dart';
+import 'package:cycle_sync_mvp_2/core/constants/workout_reference.dart';
 import 'package:cycle_sync_mvp_2/presentation/providers/fitness_logs_provider.dart';
+import 'package:cycle_sync_mvp_2/presentation/providers/cycle_provider.dart';
 import 'package:logger/logger.dart';
 
-/// Fitness Log Dialog
-void showFitnessLogDialog(BuildContext context, WidgetRef ref) {
-  final Logger logger = Logger();
-  String selectedActivity = 'Yoga';
-  int duration = 30;
-  String selectedIntensity = 'Medium';
-  String? notes;
-
-  final activities = ['Yoga', 'Running', 'Strength', 'HIIT', 'Pilates', 'Walking', 'Cycling', 'Swimming'];
-  final intensities = ['Low', 'Medium', 'High'];
-
+/// Fitness Log Dialog - Uses approved workouts from reference table
+void showFitnessLogDialog(BuildContext context, WidgetRef ref, {DateTime? selectedDate}) {
   showDialog(
     context: context,
     builder: (BuildContext context) {
-      return AlertDialog(
-        title: const Text('Log Fitness Activity'),
-        content: StatefulBuilder(
-          builder: (BuildContext context, StateSetter setState) {
-            return SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Activity Type
-                  Text('Activity Type', style: AppTypography.subtitle2),
-                  SizedBox(height: AppSpacing.sm),
-                  DropdownButton<String>(
-                    value: selectedActivity,
-                    isExpanded: true,
-                    items: activities.map((activity) {
-                      return DropdownMenuItem(
-                        value: activity,
-                        child: Text(activity),
-                      );
-                    }).toList(),
-                    onChanged: (value) {
-                      setState(() => selectedActivity = value ?? 'Yoga');
-                    },
-                  ),
-                  SizedBox(height: AppSpacing.lg),
-
-                  // Duration
-                  Text('Duration (minutes)', style: AppTypography.subtitle2),
-                  SizedBox(height: AppSpacing.sm),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      IconButton(
-                        onPressed: () {
-                          if (duration > 5) {
-                            setState(() => duration -= 5);
-                          }
-                        },
-                        icon: const Icon(Icons.remove_circle_outline),
-                      ),
-                      Text('$duration min', style: AppTypography.header2),
-                      IconButton(
-                        onPressed: () {
-                          if (duration < 180) {
-                            setState(() => duration += 5);
-                          }
-                        },
-                        icon: const Icon(Icons.add_circle_outline),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: AppSpacing.lg),
-
-                  // Intensity
-                  Text('Intensity', style: AppTypography.subtitle2),
-                  SizedBox(height: AppSpacing.sm),
-                  Row(
-                    children: intensities.map((intensity) {
-                      final isSelected = selectedIntensity == intensity;
-                      return Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: isSelected ? AppColors.peach : Colors.grey[300],
-                            ),
-                            onPressed: () => setState(() => selectedIntensity = intensity),
-                            child: Text(
-                              intensity,
-                              style: TextStyle(
-                                color: isSelected ? Colors.white : Colors.black,
-                              ),
-                            ),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                  SizedBox(height: AppSpacing.lg),
-
-                  // Notes
-                  Text('Notes (optional)', style: AppTypography.subtitle2),
-                  SizedBox(height: AppSpacing.sm),
-                  TextField(
-                    decoration: InputDecoration(
-                      hintText: 'How did it feel?',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(AppSpacing.radiusSmall),
-                      ),
-                    ),
-                    maxLines: 2,
-                    onChanged: (value) => notes = value,
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              try {
-                await ref.read(
-                  createFitnessLogProvider(
-                    (selectedActivity, duration, selectedIntensity, notes),
-                  ).future,
-                );
-
-                logger.i('✅ Fitness logged: $selectedActivity');
-
-                if (context.mounted) {
-                  Navigator.of(context).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Workout logged! 💪'),
-                      duration: Duration(seconds: 2),
-                    ),
-                  );
-                }
-              } catch (e) {
-                logger.e('❌ Error logging fitness: $e');
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error: $e')),
-                  );
-                }
-              }
-            },
-            child: const Text('Log Activity'),
-          ),
-        ],
-      );
+      return _FitnessLogDialogContent(selectedDate: selectedDate);
     },
   );
+}
+
+/// Dialog content - fetches approved workouts by phase
+class _FitnessLogDialogContent extends ConsumerStatefulWidget {
+  final DateTime? selectedDate;
+  
+  const _FitnessLogDialogContent({this.selectedDate});
+
+  @override
+  ConsumerState<_FitnessLogDialogContent> createState() => _FitnessLogDialogContentState();
+}
+
+class _FitnessLogDialogContentState extends ConsumerState<_FitnessLogDialogContent> {
+  String? selectedWorkoutId; // Start as null - nothing selected
+  Workout? selectedWorkout; // Start as null - nothing selected
+  final Logger logger = Logger();
+
+  @override
+  void initState() {
+    super.initState();
+    // No pre-selection - let user choose
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final phaseAsync = ref.watch(currentPhaseProvider);
+
+    return phaseAsync.when(
+      data: (phase) {
+        // phase is a String (e.g., 'Follicular', 'Ovulation', etc.)
+        final workouts = WorkoutReference.getWorkoutsForPhase(phase);
+
+        if (workouts.isEmpty) {
+          return AlertDialog(
+            title: const Text('No Workouts Available'),
+            content: const Text('No approved workouts for your current phase'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ],
+          );
+        }
+
+        logger.i('🏋️ Rendering dialog for phase: $phase');
+        logger.i('📋 Found ${workouts.length} workouts');
+
+        return AlertDialog(
+          title: const Text('Plan & Track Workout'),
+          contentPadding: EdgeInsets.zero,
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(
+              maxHeight: 500,
+              minWidth: 300,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Phase info
+                Padding(
+                  padding: const EdgeInsets.all(AppSpacing.md),
+                  child: Container(
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    decoration: BoxDecoration(
+                      color: AppColors.backgroundSecondary,
+                      borderRadius: BorderRadius.circular(AppSpacing.radiusSmall),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.info_outline, size: 20),
+                        SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Optimal for $phase Phase',
+                                style: AppTypography.caption.copyWith(
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                              Text(
+                                'Choose from approved workouts',
+                                style: AppTypography.body2.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // Workout selection title
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                  child: Text('Select Workout', style: AppTypography.subtitle2),
+                ),
+                SizedBox(height: AppSpacing.md),
+
+                // Workout list
+                Expanded(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                    itemCount: workouts.length,
+                    itemBuilder: (context, index) {
+                      final workout = workouts[index];
+                      final isSelected = selectedWorkout != null && selectedWorkout!.id == workout.id;
+                      return Card(
+                        color: isSelected ? Colors.blue[50] : null,
+                        margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+                        child: ListTile(
+                          selected: isSelected,
+                          title: Text(
+                            workout.name,
+                            style: AppTypography.body2.copyWith(
+                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.normal,
+                            ),
+                          ),
+                          subtitle: Text(
+                            '${workout.durationMinutes} min • ${workout.intensity}',
+                            style: AppTypography.caption,
+                          ),
+                          trailing: isSelected
+                              ? const Icon(Icons.check_circle, color: Colors.blue)
+                              : null,
+                          onTap: () {
+                            logger.i('✅ Selected workout: ${workout.name}');
+                            setState(() {
+                              selectedWorkout = workout;
+                              selectedWorkoutId = workout.id;
+                            });
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: selectedWorkout == null ? null : () async {
+                try {
+                  logger.i('➕ Starting to add workout...');
+                  
+                  // Create the fitness log with selected date
+                  final params = (
+                    selectedWorkout!.name,
+                    selectedWorkout!.durationMinutes,
+                    selectedWorkout!.intensity,
+                    'Planned: ${selectedWorkout!.benefits}',
+                    widget.selectedDate,
+                  );
+                  
+                  logger.i('⏳ Calling createFitnessLogProvider with params: ${selectedWorkout!.name}');
+                  
+                  // Create the workout
+                  await ref.read(createFitnessLogProvider(params).future);
+                  
+                  logger.i('✅ createFitnessLogProvider completed, invalidating providers...');
+                  
+                  // Invalidate providers to refresh UI with new workout
+                  ref.invalidate(todaysFitnessLogsProvider);
+                  ref.invalidate(fitnessLogsForDateProvider);
+                  
+                  logger.i('✅ Providers invalidated, waiting for rebuild...');
+                  
+                  // Give the invalidation time to propagate and the UI to rebuild
+                  await Future.delayed(const Duration(milliseconds: 500));
+                  
+                  logger.i('✅ Delay complete, showing snackbar and closing dialog');
+
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('${selectedWorkout!.name} planned for today!'),
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                    Navigator.pop(context);
+                  }
+                } catch (e) {
+                  logger.e('❌ Error adding workout: $e');
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.blush,
+              ),
+              child: const Text('Plan Workout'),
+            ),
+          ],
+        );
+      },
+      loading: () => AlertDialog(
+        title: const Text('Loading...'),
+        content: const SizedBox(
+          height: 100,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ),
+      error: (err, stack) => AlertDialog(
+        title: const Text('Error'),
+        content: Text('Error loading phase: $err'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
 }

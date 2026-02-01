@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:cycle_sync_mvp_2/core/theme/app_colors.dart';
-import 'package:cycle_sync_mvp_2/core/constants/app_constants.dart';
 
 /// Dynamic Floating Action Button
 /// Changes color and action based on current tab
@@ -12,10 +11,10 @@ class DynamicFAB extends StatelessWidget {
   final VoidCallback onPressed;
 
   const DynamicFAB({
-    Key? key,
+    super.key,
     required this.tabIndex,
     required this.onPressed,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -61,19 +60,4 @@ class DynamicFAB extends StatelessWidget {
     }
   }
 
-  /// Get FAB tooltip based on tab index
-  String _getFabTooltip() {
-    switch (tabIndex) {
-      case 0:
-        return 'Add cycle entry';
-      case 1:
-        return 'Add workout';
-      case 2:
-        return 'Add recipe';
-      case 3:
-        return 'Log fasting';
-      default:
-        return '';
-    }
-  }
 }

@@ -2,7 +2,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cycle_sync_mvp_2/core/config/supabase_config.dart';
 import 'package:cycle_sync_mvp_2/core/constants/app_constants.dart';
 import 'package:cycle_sync_mvp_2/presentation/providers/auth_provider.dart';
-import 'package:cycle_sync_mvp_2/presentation/providers/user_provider.dart';
 import 'package:logger/logger.dart';
 
 final _logger = Logger();
@@ -73,12 +72,12 @@ final currentCycleProvider =
     final response = await SupabaseConfig.client
         .from('user_profiles')
         .select()
-        .eq('user_id', user.id)
-        .single()
+        .eq('id', user.id)
+        .maybeSingle()
         .timeout(const Duration(seconds: 10));
 
     if (response == null) {
-      _logger.d('ℹ️ No user profile found yet');
+      _logger.d('ℹ️ No cycle profile found for user. Creating default...');
       return null;
     }
 
@@ -205,7 +204,7 @@ final userCycleLengthProvider = FutureProvider.autoDispose<int>((ref) async {
 });
 
 /// Create cycle provider
-/// Saves cycle info to user_profiles table (single source of truth)
+/// Saves cycle info to cycles table (this triggers the sync to user_profiles)
 final createCycleProvider =
     FutureProvider.autoDispose.family<void, (DateTime, int, int)>((ref, params) async {
   final user = ref.watch(currentUserProvider);
@@ -214,69 +213,151 @@ final createCycleProvider =
   final (startDate, cycleLength, menstrualLength) = params;
 
   try {
-    _logger.i('📤 Saving cycle to user profile: start_date=${startDate.toIso8601String()}, cycle_length=$cycleLength, menstrual_length=$menstrualLength');
+    _logger.i('📤 Saving cycle to cycles table: start_date=${startDate.toIso8601String()}, cycle_length=$cycleLength');
 
-    // Try to update existing profile first
-    final existingProfile = await SupabaseConfig.client
-        .from('user_profiles')
+    final startDateStr = startDate.toIso8601String().split('T')[0]; // Date only, not datetime
+
+    // Mark all previous cycles as inactive (only one active cycle at a time)
+    await SupabaseConfig.client
+        .from('cycles')
+        .update({'is_active': false})
+        .eq('user_id', user.id);
+    _logger.i('✅ Marked previous cycles as inactive');
+
+    // Check if a cycle with this start date already exists
+    final existingCycle = await SupabaseConfig.client
+        .from('cycles')
         .select()
         .eq('user_id', user.id)
+        .eq('start_date', startDateStr)
         .maybeSingle();
 
-    if (existingProfile != null) {
-      // Update existing profile
+    if (existingCycle != null) {
+      // Update existing cycle
+      _logger.i('📝 Cycle with start_date=$startDateStr already exists, updating it');
       await SupabaseConfig.client
-          .from('user_profiles')
+          .from('cycles')
           .update({
             'cycle_length': cycleLength,
-            'menstrual_length': menstrualLength,
-            'last_period_date': startDate.toIso8601String(),
+            'is_active': true,
             'updated_at': DateTime.now().toIso8601String(),
           })
-          .eq('user_id', user.id);
-      _logger.i('✅ Cycle updated in user profile');
+          .eq('id', existingCycle['id']);
+      _logger.i('✅ Existing cycle updated and marked as active');
     } else {
-      // Insert new profile
-      await SupabaseConfig.client.from('user_profiles').insert({
-        'user_id': user.id,
-        'cycle_length': cycleLength,
-        'menstrual_length': menstrualLength,
-        'last_period_date': startDate.toIso8601String(),
-      });
-      _logger.i('💡 ✅ Cycle created in user profile');
+      // Insert new cycle
+      _logger.i('✨ Creating new cycle');
+      await SupabaseConfig.client
+          .from('cycles')
+          .insert({
+            'user_id': user.id,
+            'start_date': startDateStr,
+            'cycle_length': cycleLength,
+            'is_active': true,
+          });
+      _logger.i('✅ New cycle inserted and marked as active');
     }
+    
+    // CRITICAL: Explicitly update user_profiles with new cycle data
+    // Don't rely only on trigger - directly sync the data for immediate calendar update
+    _logger.i('🔄 Syncing cycle data to user_profiles');
+    final now = DateTime.now();
+    await SupabaseConfig.client
+        .from('user_profiles')
+        .update({
+          'last_period_date': startDateStr,
+          'cycle_length': cycleLength,
+          'menstrual_length': menstrualLength,
+          'updated_at': now.toIso8601String(),
+        })
+        .eq('id', user.id);
+    _logger.i('✅ User profile synced with cycle data');
+    
+    // Small delay to ensure database writes complete before cache invalidation
+    await Future.delayed(const Duration(milliseconds: 200));
     
     // Check if provider is still mounted before invalidating
     if (ref.mounted) {
       _logger.i('🔄 Invalidating dependent providers...');
       ref.invalidate(currentCycleProvider);
+      ref.invalidate(activeCycleProvider);
       ref.invalidate(currentCycleDayProvider);
       ref.invalidate(currentPhaseProvider);
       ref.invalidate(isFertileWindowProvider);
       ref.invalidate(daysUntilPeriodProvider);
       ref.invalidate(userCycleLengthProvider);
+      ref.invalidate(cycleHistoryProvider);
       _logger.i('✅ Providers invalidated successfully');
     }
   } catch (e) {
     _logger.e('❌ Error saving cycle: $e');
     rethrow;
   }
+
+});
+
+/// Get active cycle provider
+/// Fetches the most recent/active cycle from cycles table for calendar display
+/// Only returns ONE active cycle (the current one)
+final activeCycleProvider = FutureProvider.autoDispose<CycleData?>((ref) async {
+  final user = ref.watch(currentUserProvider);
+  if (user == null) {
+    _logger.d('ℹ️ No user to fetch cycle for');
+    return null;
+  }
+
+  try {
+    _logger.d('📥 Fetching active cycle for user: ${user.id}');
+
+    final response = await SupabaseConfig.client
+        .from('cycles')
+        .select()
+        .eq('user_id', user.id)
+        .eq('is_active', true) // Get only active cycles
+        .order('start_date', ascending: false) // Most recent first
+        .limit(1)
+        .maybeSingle()
+        .timeout(const Duration(seconds: 10));
+
+    if (response == null) {
+      _logger.d('ℹ️ No active cycle found for user');
+      return null;
+    }
+
+    final startDate = DateTime.parse(response['start_date'] as String);
+    final cycleLength = (response['cycle_length'] as int?) ?? 28;
+    
+    final cycle = CycleData(
+      id: response['id'] as String,
+      userId: response['user_id'] as String,
+      startDate: startDate,
+      length: cycleLength,
+      phase: '', // Phase will be calculated per date
+      dayOfCycle: 0,
+      createdAt: DateTime.parse(response['created_at'] as String),
+      updatedAt: DateTime.parse(response['updated_at'] as String),
+    );
+
+    _logger.i('✅ Loaded active cycle: start_date=${cycle.startDate}, length=${cycle.length}');
+    return cycle;
+  } catch (e) {
+    _logger.e('❌ Error fetching active cycle: $e');
+    return null;
+  }
 });
 
 /// Get cycle history provider
-/// Returns current cycle (single profile - no history in new schema)
+/// Returns the active cycle for a specific month from the cycles table
 final cycleHistoryProvider = FutureProvider.autoDispose
     .family<List<CycleData>, DateTime>((ref, month) async {
-  // In the new schema, we only have current cycle data in user_profiles
-  // Return the current cycle if it exists
-  final currentCycle = await ref.watch(currentCycleProvider.future);
+  final activeCycle = await ref.watch(activeCycleProvider.future);
   
-  if (currentCycle == null) {
-    _logger.d('ℹ️ No cycle history available');
+  if (activeCycle == null) {
+    _logger.d('ℹ️ No active cycle available');
     return [];
   }
 
-  // Return current cycle as a single-item list
-  _logger.i('✅ Returning current cycle for calendar view');
-  return [currentCycle];
+  // Return single active cycle as a list
+  _logger.i('✅ Returning active cycle for calendar view');
+  return [activeCycle];
 });

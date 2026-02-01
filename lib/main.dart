@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cycle_sync_mvp_2/core/config/supabase_config.dart';
+import 'package:cycle_sync_mvp_2/core/services/firebase_init.dart';
 import 'package:cycle_sync_mvp_2/core/theme/app_colors.dart';
 import 'package:cycle_sync_mvp_2/presentation/pages/app_shell.dart';
 import 'package:cycle_sync_mvp_2/presentation/pages/auth/login_page.dart';
@@ -8,6 +9,10 @@ import 'package:cycle_sync_mvp_2/presentation/providers/auth_provider.dart';
 import 'package:logger/logger.dart';
 
 void main() async {
+  // Ensure Flutter binding is initialized first
+  WidgetsFlutterBinding.ensureInitialized();
+  // Initialize Firebase
+  await initializeFirebase();
   // Initialize Supabase before running the app
   await SupabaseConfig.initialize();
   runApp(

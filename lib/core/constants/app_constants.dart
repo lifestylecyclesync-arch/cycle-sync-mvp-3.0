@@ -204,6 +204,23 @@ class AppConstants {
   static const int maxFastingLogsPerDay = 1;
   
   // ============================================================================
+  // PHASE LIFESTYLE NAMES - Maps hormonal phase to lifestyle phase name
+  // ============================================================================
+  
+  /// Maps each cycle phase to its lifestyle/wellness name
+  static const Map<String, String> phaseLifestyleNames = {
+    'Menstrual': 'Cozy Care',       // Rest, comfort, self-care
+    'Follicular': 'Power Up',       // Energy, growth, building
+    'Ovulation': 'Shine',            // Radiance, peak, social
+    'Luteal': 'Restore',             // Restoration, slowdown, reflection
+  };
+  
+  /// Get lifestyle name for a given hormonal phase
+  static String getLifestyleName(String hormonalPhase) {
+    return phaseLifestyleNames[hormonalPhase] ?? 'Wellness';
+  }
+  
+  // ============================================================================
   // HELPER METHODS
   // ============================================================================
   

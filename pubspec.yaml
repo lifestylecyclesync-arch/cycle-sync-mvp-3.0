@@ -41,6 +41,12 @@ dependencies:
   
   # Backend
   supabase_flutter: ^2.0.0
+  firebase_core: ^2.24.0
+  cloud_firestore: ^4.14.0
+  firebase_auth: ^4.17.0
+  
+  # API
+  dio: ^5.3.0
   
   # Navigation (optional, can use built-in routing)
   go_router: ^13.0.0

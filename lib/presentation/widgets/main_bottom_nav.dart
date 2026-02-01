@@ -1,22 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:cycle_sync_mvp_2/core/theme/app_colors.dart';
-import 'package:cycle_sync_mvp_2/core/theme/app_spacing.dart';
 import 'package:cycle_sync_mvp_2/core/theme/app_typography.dart';
 
 /// Main Bottom Navigation Bar
-/// 5-tab navigation with cycle phase aware styling
+/// 6-tab navigation with cycle phase aware styling
 class MainBottomNav extends StatelessWidget {
   /// Current selected tab index
   final int currentIndex;
+
+  /// Number of items in navigation bar
+  final int itemCount;
 
   /// Callback when tab is tapped
   final Function(int) onTap;
 
   const MainBottomNav({
-    Key? key,
+    super.key,
     required this.currentIndex,
     required this.onTap,
-  }) : super(key: key);
+    this.itemCount = 6,
+  });
 
   @override
   Widget build(BuildContext context) {

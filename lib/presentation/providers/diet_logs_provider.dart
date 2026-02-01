@@ -39,34 +39,44 @@ class DietLog {
 
 final supabaseClient = Supabase.instance.client;
 
-/// Get today's diet logs
-final todaysDietLogsProvider = FutureProvider.autoDispose<List<DietLog>>((ref) async {
+/// Get diet logs for a specific date (defaults to today if null)
+final dietLogsForDateProvider = FutureProvider.autoDispose.family<List<DietLog>, DateTime?>((ref, selectedDate) async {
   final user = supabaseClient.auth.currentUser;
   if (user == null) return [];
 
-  final today = DateTime.now();
-  final todayDate = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+  final queryDate = selectedDate ?? DateTime.now();
+  final dateStr = '${queryDate.year}-${queryDate.month.toString().padLeft(2, '0')}-${queryDate.day.toString().padLeft(2, '0')}';
 
   final response = await supabaseClient
       .from('diet_logs')
       .select()
       .eq('user_id', user.id)
-      .eq('log_date', todayDate)
+      .eq('log_date', dateStr)
       .order('created_at', ascending: false);
 
   return (response as List).map((log) => DietLog.fromJson(log as Map<String, dynamic>)).toList();
 });
 
+/// Convenience provider for today's diet logs
+final todaysDietLogsProvider = FutureProvider.autoDispose<List<DietLog>>((ref) async {
+  final asyncValue = ref.watch(dietLogsForDateProvider(null));
+  return asyncValue.when(
+    data: (logs) => logs,
+    loading: () => throw Exception('Loading...'),
+    error: (e, st) => throw e,
+  );
+});
+
 /// Create diet log
-final createDietLogProvider = FutureProvider.autoDispose.family<void, (String, List<String>, int?, String?)>(
+final createDietLogProvider = FutureProvider.autoDispose.family<void, (String, List<String>, int?, String?, DateTime?)>(
   (ref, params) async {
     final user = supabaseClient.auth.currentUser;
     if (user == null) throw Exception('Not authenticated');
 
-    final (mealType, foodItems, calories, notes) = params;
+    final (mealType, foodItems, calories, notes, selectedDate) = params;
     
-    final now = DateTime.now();
-    final dateOnly = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final dateToUse = selectedDate ?? DateTime.now();
+    final dateOnly = '${dateToUse.year}-${dateToUse.month.toString().padLeft(2, '0')}-${dateToUse.day.toString().padLeft(2, '0')}';
 
     await supabaseClient.from('diet_logs').insert({
       'user_id': user.id,
@@ -76,10 +86,6 @@ final createDietLogProvider = FutureProvider.autoDispose.family<void, (String, L
       'calories': calories,
       'notes': notes,
     });
-
-    if (ref.mounted) {
-      ref.invalidate(todaysDietLogsProvider);
-    }
   },
 );
 
@@ -87,6 +93,5 @@ final createDietLogProvider = FutureProvider.autoDispose.family<void, (String, L
 final deleteDietLogProvider = FutureProvider.autoDispose.family<void, String>(
   (ref, logId) async {
     await supabaseClient.from('diet_logs').delete().eq('id', logId);
-    ref.invalidate(todaysDietLogsProvider);
   },
 );

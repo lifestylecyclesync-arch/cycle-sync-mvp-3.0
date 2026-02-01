@@ -29,14 +29,15 @@ class AppState {
 }
 
 /// App state notifier for managing simple app-level state
-class AppStateNotifier extends StateNotifier<AppState> {
-  AppStateNotifier()
-      : super(const AppState(
-          isLoading: false,
-          error: null,
-          selectedDate: null,
-        )) {
+class AppStateNotifier extends Notifier<AppState> {
+  @override
+  AppState build() {
     _logger.i('🚀 AppStateNotifier initialized');
+    return const AppState(
+      isLoading: false,
+      error: null,
+      selectedDate: null,
+    );
   }
 
   /// Set loading state
@@ -65,8 +66,6 @@ class AppStateNotifier extends StateNotifier<AppState> {
 }
 
 /// App state provider
-final appStateProvider =
-    StateNotifierProvider<AppStateNotifier, AppState>((ref) {
-  return AppStateNotifier();
-});
-});
+final appStateProvider = NotifierProvider<AppStateNotifier, AppState>(
+  AppStateNotifier.new,
+);

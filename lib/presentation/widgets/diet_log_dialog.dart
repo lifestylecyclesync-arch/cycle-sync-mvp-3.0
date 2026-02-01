@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cycle_sync_mvp_2/core/theme/app_colors.dart';
 import 'package:cycle_sync_mvp_2/core/theme/app_typography.dart';
 import 'package:cycle_sync_mvp_2/core/theme/app_spacing.dart';
 import 'package:cycle_sync_mvp_2/presentation/providers/diet_logs_provider.dart';
 import 'package:logger/logger.dart';
 
 /// Diet Log Dialog
-void showDietLogDialog(BuildContext context, WidgetRef ref) {
+void showDietLogDialog(BuildContext context, WidgetRef ref, {DateTime? selectedDate}) {
   final Logger logger = Logger();
   String selectedMealType = 'Breakfast';
   List<String> foodItems = [];
@@ -130,11 +129,18 @@ void showDietLogDialog(BuildContext context, WidgetRef ref) {
               try {
                 await ref.read(
                   createDietLogProvider(
-                    (selectedMealType, foodItems, calories, null),
+                    (selectedMealType, foodItems, calories, null, selectedDate),
                   ).future,
                 );
 
                 logger.i('✅ Meal logged: $selectedMealType');
+                
+                // Invalidate providers to refresh UI with new meal
+                ref.invalidate(todaysDietLogsProvider);
+                ref.invalidate(dietLogsForDateProvider);
+                
+                // Give the invalidation time to propagate
+                await Future.delayed(const Duration(milliseconds: 500));
 
                 if (context.mounted) {
                   Navigator.of(context).pop();

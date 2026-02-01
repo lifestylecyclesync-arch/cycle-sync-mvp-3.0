@@ -164,7 +164,7 @@ final phaseRecommendationsProvider = FutureProvider.family<List<Map<String, dyna
           .eq('is_active', true)
           .order('order_index');
 
-      return response as List<Map<String, dynamic>>;
+      return response;
     } catch (e) {
       throw Exception('Failed to fetch recommendations for $phaseId/$category: $e');
     }
@@ -257,7 +257,7 @@ final userPhaseRecommendationsByDayProvider =
     final profileResponse = await SupabaseConfig.client
         .from('user_profiles')
         .select('last_period_date, cycle_length')
-        .eq('user_id', userId)
+        .eq('id', userId)
         .maybeSingle();
 
     if (profileResponse == null) return {};
@@ -311,7 +311,7 @@ final userPhaseRecommendationsProvider =
       final profileResponse = await SupabaseConfig.client
           .from('user_profiles')
           .select('last_period_date, cycle_length')
-          .eq('user_id', userId)
+          .eq('id', userId)
           .maybeSingle();
 
       if (profileResponse == null) return [];
@@ -334,7 +334,7 @@ final userPhaseRecommendationsProvider =
           .eq('recommendation_type', category)
           .order('day_range_start');
 
-      return response as List<Map<String, dynamic>>;
+      return response;
     } catch (e) {
       print('⚠️ Could not fetch user phase recommendations for $category: $e');
       return [];

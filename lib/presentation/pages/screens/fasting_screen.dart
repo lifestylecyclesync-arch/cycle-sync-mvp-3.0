@@ -8,6 +8,7 @@ import 'package:cycle_sync_mvp_2/presentation/widgets/cycle_calendar_grid.dart';
 import 'package:cycle_sync_mvp_2/presentation/widgets/planner_card.dart';
 import 'package:cycle_sync_mvp_2/presentation/providers/phase_provider.dart' as phase_providers;
 import 'package:cycle_sync_mvp_2/presentation/providers/fasting_logs_provider.dart';
+import 'package:cycle_sync_mvp_2/presentation/providers/templates_provider.dart';
 import 'package:cycle_sync_mvp_2/presentation/providers/cycle_provider.dart' as cycle_providers;
 
 /// Fasting Screen
@@ -46,6 +47,9 @@ class _FastingScreenState extends ConsumerState<FastingScreen> {
       _selectedDay = day;
     });
   }
+
+  /// Get the currently selected day (for dialog to use when adding fasting logs)
+  DateTime? getSelectedDay() => _selectedDay;
 
   @override
   Widget build(BuildContext context) {
@@ -96,7 +100,6 @@ class _FastingScreenState extends ConsumerState<FastingScreen> {
               onDayTapped: _onDayTapped,
             ),
           ),
-          SizedBox(height: AppSpacing.xl),
 
           // Fasting plan section - updates based on selected day
           phaseDefsAsync.when(
@@ -143,24 +146,48 @@ class _FastingScreenState extends ConsumerState<FastingScreen> {
                           ? recommendations[0]
                           : null;
 
-                      return PlannerCard(
-                        title: 'Fasting Suggestion',
-                        subtitle: '$displayPhase Phase - Day $cycleDay',
-                        headerIcon: Icons.hourglass_empty,
-                        accentColor: AppColors.peach,
-                        body: rec != null
-                            ? Text(
-                                '${rec['fasting_beginner'] ?? 'N/A'}',
-                                style: AppTypography.body2.copyWith(
-                                  color: AppColors.textSecondary,
-                                ),
-                              )
-                            : Text(
-                                'No fasting recommendation',
-                                style: AppTypography.body2.copyWith(
-                                  color: AppColors.textSecondary,
-                                ),
+                      // Watch daily template from database
+                      // Use normalized date (midnight) to avoid constant rebuilds
+                      final templateDate = _selectedDay ?? DateTime.now();
+                      final normalizedDate = DateTime(templateDate.year, templateDate.month, templateDate.day);
+                      final templateAsync = ref.watch(
+                        dailyTemplateProvider(('Fasting', normalizedDate)),
+                      );
+
+                      return templateAsync.when(
+                        data: (template) {
+                          final templateText = template != null && rec != null
+                              ? template.fillTemplate(rec['fast_style'] ?? rec['fasting_beginner'] ?? 'fasting')
+                              : 'No fasting recommendation';
+
+                          return PlannerCard(
+                            title: 'Day $cycleDay · $displayPhase phase',
+                            headerIcon: Icons.hourglass_empty,
+                            accentColor: AppColors.peach,
+                            body: Text(
+                              templateText,
+                              style: AppTypography.body2.copyWith(
+                                color: AppColors.textSecondary,
                               ),
+                            ),
+                          );
+                        },
+                        loading: () => PlannerCard(
+                          title: 'Day $cycleDay · $displayPhase phase',
+                          headerIcon: Icons.hourglass_empty,
+                          accentColor: AppColors.peach,
+                          body: const SizedBox(
+                            height: 50,
+                            child: Center(child: CircularProgressIndicator()),
+                          ),
+                        ),
+                        error: (err, stack) => PlannerCard(
+                          title: 'Fasting Suggestion',
+                          headerIcon: Icons.hourglass_empty,
+                          accentColor: AppColors.peach,
+                          body: Text('Error loading template: $err',
+                              style: AppTypography.body2),
+                        ),
                       );
                     },
                     loading: () =>
@@ -186,9 +213,12 @@ class _FastingScreenState extends ConsumerState<FastingScreen> {
           SizedBox(height: AppSpacing.xl),
           Text('Fasting Plan', style: AppTypography.header2),
           SizedBox(height: AppSpacing.md),
-          ref.watch(todaysFastingLogsProvider).when(
+          ref.watch(fastingLogsForDateProvider(_selectedDay)).when(
             data: (logs) {
               if (logs.isEmpty) {
+                final dateStr = _selectedDay != null 
+                    ? '${_selectedDay!.year}-${_selectedDay!.month.toString().padLeft(2, '0')}-${_selectedDay!.day.toString().padLeft(2, '0')}'
+                    : 'today';
                 return Container(
                   padding: const EdgeInsets.all(AppSpacing.lg),
                   decoration: BoxDecoration(
@@ -197,7 +227,7 @@ class _FastingScreenState extends ConsumerState<FastingScreen> {
                   ),
                   child: Center(
                     child: Text(
-                      'No fasting logged today. Tap + to add one!',
+                      'No fasting logged for $dateStr. Tap + to add one!',
                       style: AppTypography.body2.copyWith(color: AppColors.textSecondary),
                     ),
                   ),
@@ -273,8 +303,10 @@ class _FastingScreenState extends ConsumerState<FastingScreen> {
                                 icon: const Icon(Icons.check_circle_outline, size: 24, color: Colors.green),
                               ),
                               IconButton(
-                                onPressed: () {
-                                  ref.read(deleteFastingLogProvider(log.id));
+                                onPressed: () async {
+                                  await ref.read(deleteFastingLogProvider(log.id).future);
+                                  ref.invalidate(todaysFastingLogsProvider);
+                                  ref.invalidate(fastingLogsForDateProvider);
                                 },
                                 icon: const Icon(Icons.delete, size: 20, color: Colors.red),
                               ),
@@ -294,36 +326,5 @@ class _FastingScreenState extends ConsumerState<FastingScreen> {
       ),
     );
   }
-
-  List<Widget> _buildFastingInfo(dynamic rec) {
-    return [
-      SizedBox(height: AppSpacing.md),
-      Container(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        decoration: BoxDecoration(
-          color: AppColors.peach.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(AppSpacing.borderRadiusCard),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            Column(
-              children: [
-                Text('Recommended', style: AppTypography.caption),
-                Text('${rec.fastingHoursMin}-${rec.fastingHoursMax}h', 
-                  style: AppTypography.subtitle1),
-              ],
-            ),
-            if (rec.fastingStyle != null)
-              Column(
-                children: [
-                  Text('Style', style: AppTypography.caption),
-                  Text(rec.fastingStyle!, style: AppTypography.body2),
-                ],
-              ),
-          ],
-        ),
-      ),
-    ];
-  }
 }
+

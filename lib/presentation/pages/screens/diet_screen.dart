@@ -8,6 +8,7 @@ import 'package:cycle_sync_mvp_2/presentation/widgets/cycle_calendar_grid.dart';
 import 'package:cycle_sync_mvp_2/presentation/widgets/planner_card.dart';
 import 'package:cycle_sync_mvp_2/presentation/providers/phase_provider.dart' as phase_providers;
 import 'package:cycle_sync_mvp_2/presentation/providers/diet_logs_provider.dart';
+import 'package:cycle_sync_mvp_2/presentation/providers/templates_provider.dart';
 import 'package:cycle_sync_mvp_2/presentation/providers/cycle_provider.dart' as cycle_providers;
 
 /// Diet Screen
@@ -46,6 +47,9 @@ class _DietScreenState extends ConsumerState<DietScreen> {
       _selectedDay = day;
     });
   }
+
+  /// Get the currently selected day (for dialog to use when adding meals)
+  DateTime? getSelectedDay() => _selectedDay;
 
   @override
   Widget build(BuildContext context) {
@@ -96,7 +100,6 @@ class _DietScreenState extends ConsumerState<DietScreen> {
               onDayTapped: _onDayTapped,
             ),
           ),
-          SizedBox(height: AppSpacing.xl),
 
           // Diet plan section - updates based on selected day
           phaseDefsAsync.when(
@@ -143,24 +146,48 @@ class _DietScreenState extends ConsumerState<DietScreen> {
                           ? recommendations[0]
                           : null;
 
-                      return PlannerCard(
-                        title: 'Nutrition Suggestion',
-                        subtitle: '$displayPhase Phase - Day $cycleDay',
-                        headerIcon: Icons.restaurant_menu,
-                        accentColor: AppColors.sage,
-                        body: rec != null
-                            ? Text(
-                                'Food Vibe: ${rec['food_vibe'] ?? rec['title'] ?? 'Nutrition'}',
-                                style: AppTypography.body2.copyWith(
-                                  color: AppColors.textSecondary,
-                                ),
-                              )
-                            : Text(
-                                'No nutrition recommendation',
-                                style: AppTypography.body2.copyWith(
-                                  color: AppColors.textSecondary,
-                                ),
+                      // Watch daily template from database
+                      // Use normalized date (midnight) to avoid constant rebuilds
+                      final templateDate = _selectedDay ?? DateTime.now();
+                      final normalizedDate = DateTime(templateDate.year, templateDate.month, templateDate.day);
+                      final templateAsync = ref.watch(
+                        dailyTemplateProvider(('Diet', normalizedDate)),
+                      );
+
+                      return templateAsync.when(
+                        data: (template) {
+                          final templateText = template != null && rec != null
+                              ? template.fillTemplate(rec['food_vibe'] ?? rec['title'] ?? 'nourishment')
+                              : 'No nutrition recommendation';
+
+                          return PlannerCard(
+                            title: 'Day $cycleDay · $displayPhase phase',
+                            headerIcon: Icons.restaurant_menu,
+                            accentColor: AppColors.sage,
+                            body: Text(
+                              templateText,
+                              style: AppTypography.body2.copyWith(
+                                color: AppColors.textSecondary,
                               ),
+                            ),
+                          );
+                        },
+                        loading: () => PlannerCard(
+                          title: 'Day $cycleDay · $displayPhase phase',
+                          headerIcon: Icons.restaurant_menu,
+                          accentColor: AppColors.sage,
+                          body: const SizedBox(
+                            height: 50,
+                            child: Center(child: CircularProgressIndicator()),
+                          ),
+                        ),
+                        error: (err, stack) => PlannerCard(
+                          title: 'Nutrition Suggestion',
+                          headerIcon: Icons.restaurant_menu,
+                          accentColor: AppColors.sage,
+                          body: Text('Error loading template: $err',
+                              style: AppTypography.body2),
+                        ),
                       );
                     },
                     loading: () =>
@@ -186,9 +213,12 @@ class _DietScreenState extends ConsumerState<DietScreen> {
           SizedBox(height: AppSpacing.xl),
           Text('Meals Plan', style: AppTypography.header2),
           SizedBox(height: AppSpacing.md),
-          ref.watch(todaysDietLogsProvider).when(
+          ref.watch(dietLogsForDateProvider(_selectedDay)).when(
             data: (logs) {
               if (logs.isEmpty) {
+                final dateStr = _selectedDay != null 
+                    ? '${_selectedDay!.year}-${_selectedDay!.month.toString().padLeft(2, '0')}-${_selectedDay!.day.toString().padLeft(2, '0')}'
+                    : 'today';
                 return Container(
                   padding: const EdgeInsets.all(AppSpacing.lg),
                   decoration: BoxDecoration(
@@ -197,7 +227,7 @@ class _DietScreenState extends ConsumerState<DietScreen> {
                   ),
                   child: Center(
                     child: Text(
-                      'No meals logged today. Tap + to add one!',
+                      'No meals logged for $dateStr. Tap + to add one!',
                       style: AppTypography.body2.copyWith(color: AppColors.textSecondary),
                     ),
                   ),
@@ -260,8 +290,10 @@ class _DietScreenState extends ConsumerState<DietScreen> {
                                 icon: const Icon(Icons.check_circle_outline, size: 24, color: Colors.green),
                               ),
                               IconButton(
-                                onPressed: () {
-                                  ref.read(deleteDietLogProvider(log.id));
+                                onPressed: () async {
+                                  await ref.read(deleteDietLogProvider(log.id).future);
+                                  ref.invalidate(todaysDietLogsProvider);
+                                  ref.invalidate(dietLogsForDateProvider);
                                 },
                                 icon: const Icon(Icons.delete, size: 20, color: Colors.red),
                               ),

@@ -27,7 +27,7 @@ class PhaseColorMap {
 }
 
 /// Cycle Calendar Grid Component
-/// Displays calendar grid with cycle phase information
+/// Displays calendar grid with cycle phase information from active cycle
 class CycleCalendarGrid extends StatelessWidget {
   /// Selected month/year for the calendar
   final DateTime selectedDate;
@@ -38,7 +38,7 @@ class CycleCalendarGrid extends StatelessWidget {
   /// Currently selected day (optional)
   final DateTime? selectedDay;
 
-  /// Cycle start date (to calculate phases)
+  /// Active cycle start date (to calculate phases)
   final DateTime? cycleStartDate;
 
   /// Cycle length in days (default 28)
@@ -48,7 +48,7 @@ class CycleCalendarGrid extends StatelessWidget {
   final List<(String, int, int)> phases;
 
   const CycleCalendarGrid({
-    Key? key,
+    super.key,
     required this.selectedDate,
     this.onDayTapped,
     this.selectedDay,
@@ -60,7 +60,7 @@ class CycleCalendarGrid extends StatelessWidget {
       ('Ovulation', 13, 15),
       ('Luteal', 16, 28),
     ],
-  }) : super(key: key);
+  });
 
   /// Get cycle day number for a given calendar date
   int _getCycleDayForDate(DateTime date) {
@@ -73,7 +73,7 @@ class CycleCalendarGrid extends StatelessWidget {
     final daysSinceStart = normalizedDate.difference(normalizedStart).inDays;
     if (daysSinceStart < 0) return 0; // Before cycle start
     
-    // Calculate day of cycle (1-based, wraps around)
+    // Calculate day of cycle (1-based, wraps around after cycleLength)
     return (daysSinceStart % cycleLength) + 1;
   }
 
@@ -171,7 +171,6 @@ class CycleCalendarGrid extends StatelessWidget {
 
             // Get cycle info for this date
             final cycleDay = _getCycleDayForDate(dayDate);
-            final phaseName = _getPhaseForCycleDay(cycleDay);
             final phaseColor = _getPhaseColor(dayDate);
 
             return GestureDetector(
@@ -212,47 +211,6 @@ class CycleCalendarGrid extends StatelessWidget {
               ),
             );
           },
-        ),
-
-        // Phase legend
-        Padding(
-          padding: const EdgeInsets.only(top: AppSpacing.lg),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Cycle Phases',
-                style: AppTypography.subtitle2.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              SizedBox(height: AppSpacing.sm),
-              Wrap(
-                spacing: AppSpacing.md,
-                runSpacing: AppSpacing.sm,
-                children: phases.map((phase) {
-                  return Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 16,
-                        height: 16,
-                        decoration: BoxDecoration(
-                          color: PhaseColorMap.getColor(phase.$1),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                      ),
-                      SizedBox(width: AppSpacing.xs),
-                      Text(
-                        '${phase.$1} (D${phase.$2}-${phase.$3})',
-                        style: AppTypography.caption,
-                      ),
-                    ],
-                  );
-                }).toList(),
-              ),
-            ],
-          ),
         ),
       ],
     );

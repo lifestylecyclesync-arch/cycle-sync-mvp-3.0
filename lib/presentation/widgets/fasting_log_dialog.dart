@@ -7,7 +7,7 @@ import 'package:cycle_sync_mvp_2/presentation/providers/fasting_logs_provider.da
 import 'package:logger/logger.dart';
 
 /// Fasting Log Dialog
-void showFastingLogDialog(BuildContext context, WidgetRef ref) {
+void showFastingLogDialog(BuildContext context, WidgetRef ref, {DateTime? selectedDate}) {
   final Logger logger = Logger();
   DateTime startTime = DateTime.now().subtract(const Duration(hours: 16));
   DateTime endTime = DateTime.now();
@@ -149,10 +149,17 @@ void showFastingLogDialog(BuildContext context, WidgetRef ref) {
 
               try {
                 await ref.read(
-                  createFastingLogProvider((startTime, endTime, null)).future,
+                  createFastingLogProvider((startTime, endTime, null, selectedDate)).future,
                 );
 
                 logger.i('✅ Fasting logged');
+                
+                // Invalidate providers to refresh UI with new fasting log
+                ref.invalidate(todaysFastingLogsProvider);
+                ref.invalidate(fastingLogsForDateProvider);
+                
+                // Give the invalidation time to propagate
+                await Future.delayed(const Duration(milliseconds: 500));
 
                 if (context.mounted) {
                   Navigator.of(context).pop();
