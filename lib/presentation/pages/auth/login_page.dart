@@ -15,10 +15,10 @@ class LoginPage extends StatefulWidget {
   final VoidCallback onNavigateToSignup;
 
   const LoginPage({
-    Key? key,
+    super.key,
     required this.onLoginSuccess,
     required this.onNavigateToSignup,
-  }) : super(key: key);
+  });
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -84,6 +84,8 @@ class _LoginPageState extends State<LoginPage> {
 
       if (mounted) {
         widget.onLoginSuccess();
+        // Pop the login screen to go back to AuthWrapper
+        Navigator.of(context).pop();
       }
     } catch (e) {
       _logger.e('❌ Login failed: $e');

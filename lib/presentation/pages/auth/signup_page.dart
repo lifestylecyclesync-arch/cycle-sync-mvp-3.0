@@ -15,10 +15,10 @@ class SignupPage extends StatefulWidget {
   final VoidCallback onNavigateToLogin;
 
   const SignupPage({
-    Key? key,
+    super.key,
     required this.onSignupSuccess,
     required this.onNavigateToLogin,
-  }) : super(key: key);
+  });
 
   @override
   State<SignupPage> createState() => _SignupPageState();
@@ -127,10 +127,11 @@ class _SignupPageState extends State<SignupPage> {
           ),
         );
 
-        // Navigate to login after delay
+        // Navigate back to login after delay
         Future.delayed(const Duration(seconds: 2), () {
           if (mounted) {
             widget.onSignupSuccess();
+            Navigator.of(context).pop();
           }
         });
       }

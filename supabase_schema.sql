@@ -46,6 +46,10 @@ CREATE TABLE public.user_profiles (
   lifestyle_areas TEXT[] DEFAULT '{}', -- ['Nutrition', 'Fitness', 'Fasting']
   fasting_preference TEXT DEFAULT 'beginner', -- 'beginner' or 'advanced'
   
+  -- Onboarding
+  onboarding_completed BOOLEAN DEFAULT FALSE,
+  onboarding_completed_at TIMESTAMP WITH TIME ZONE,
+  
   -- Metadata
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -73,7 +77,8 @@ CREATE TABLE public.cycles (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
   
-  UNIQUE (user_id, start_date)
+  -- Only enforce uniqueness on active cycles to allow cycle history
+  UNIQUE (user_id, start_date, is_active)
 );
 
 -- CYCLE ENTRIES (daily cycle tracking)
@@ -239,6 +244,40 @@ CREATE TABLE public.learn_templates (
   UNIQUE (category, sort_order)
 );
 
+-- FITNESS LOGS (workout logging)
+DROP TABLE IF EXISTS public.fitness_logs CASCADE;
+CREATE TABLE public.fitness_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
+  
+  activity_date DATE NOT NULL,
+  activity_type TEXT NOT NULL,
+  duration_minutes INTEGER,
+  intensity TEXT CHECK (intensity IN ('Low', 'Medium', 'High')),
+  notes TEXT,
+  completed BOOLEAN DEFAULT FALSE,
+  
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- DIET LOGS (meal logging)
+DROP TABLE IF EXISTS public.diet_logs CASCADE;
+CREATE TABLE public.diet_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
+  
+  log_date DATE NOT NULL,
+  meal_type TEXT NOT NULL CHECK (meal_type IN ('Breakfast', 'Lunch', 'Dinner', 'Snack')),
+  food_items TEXT[] DEFAULT '{}',
+  calories INTEGER,
+  notes TEXT,
+  completed BOOLEAN DEFAULT FALSE,
+  
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- NUTRITION DATA (daily nutrition summary)
 DROP TABLE IF EXISTS public.nutrition_data CASCADE;
 CREATE TABLE public.nutrition_data (
@@ -289,6 +328,10 @@ CREATE INDEX idx_fasting_sessions_fasting_date ON public.fasting_sessions(fastin
 CREATE INDEX idx_nutrition_data_user_id ON public.nutrition_data(user_id);
 CREATE INDEX idx_nutrition_data_nutrition_date ON public.nutrition_data(nutrition_date);
 CREATE INDEX idx_learn_templates_category ON public.learn_templates(category);
+CREATE INDEX idx_fitness_logs_user_id ON public.fitness_logs(user_id);
+CREATE INDEX idx_fitness_logs_activity_date ON public.fitness_logs(activity_date);
+CREATE INDEX idx_diet_logs_user_id ON public.diet_logs(user_id);
+CREATE INDEX idx_diet_logs_log_date ON public.diet_logs(log_date);
 
 -- ============================================================================
 -- PART 3B: CYCLE CALCULATION FUNCTIONS
@@ -344,6 +387,23 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE;
 
+-- Function to create user profile when new user signs up
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.user_profiles (id, email, display_name)
+  VALUES (NEW.id, NEW.email, COALESCE(NEW.raw_user_meta_data->>'display_name', NEW.email));
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Trigger to automatically create user profile on auth signup
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_new_user();
+
 -- Trigger to sync cycle start date to user profile when cycle is created or updated
 CREATE OR REPLACE FUNCTION sync_cycle_to_user_profile()
 RETURNS TRIGGER AS $$
@@ -381,6 +441,8 @@ ALTER TABLE public.user_recipes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.fasting_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.nutrition_data ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.learn_templates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.fitness_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.diet_logs ENABLE ROW LEVEL SECURITY;
 
 -- user_profiles: Users can only access their own profile
 CREATE POLICY "Users can read own profile" ON public.user_profiles
@@ -529,6 +591,38 @@ CREATE POLICY "Anyone can read learn templates" ON public.learn_templates
 CREATE POLICY "Service role bypass" ON public.learn_templates
   FOR ALL USING (auth.role() = 'service_role');
 
+-- fitness_logs: Users can only access their own logs
+CREATE POLICY "Users can read own fitness logs" ON public.fitness_logs
+  FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own fitness logs" ON public.fitness_logs
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own fitness logs" ON public.fitness_logs
+  FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own fitness logs" ON public.fitness_logs
+  FOR DELETE USING (auth.uid() = user_id);
+
+CREATE POLICY "Service role bypass" ON public.fitness_logs
+  FOR ALL USING (auth.role() = 'service_role');
+
+-- diet_logs: Users can only access their own logs
+CREATE POLICY "Users can read own diet logs" ON public.diet_logs
+  FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own diet logs" ON public.diet_logs
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own diet logs" ON public.diet_logs
+  FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own diet logs" ON public.diet_logs
+  FOR DELETE USING (auth.uid() = user_id);
+
+CREATE POLICY "Service role bypass" ON public.diet_logs
+  FOR ALL USING (auth.role() = 'service_role');
+
 -- ============================================================================
 -- PART 5: GRANT API ACCESS TO ROLES
 -- ============================================================================
@@ -552,6 +646,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_recipes TO authenticated, an
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.fasting_sessions TO authenticated, anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.nutrition_data TO authenticated, anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.learn_templates TO authenticated, anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.fitness_logs TO authenticated, anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.diet_logs TO authenticated, anon;
 
 -- Grant sequence access for auto-increment IDs
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated, anon;

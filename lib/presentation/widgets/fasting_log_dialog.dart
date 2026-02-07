@@ -4,112 +4,108 @@ import 'package:cycle_sync_mvp_2/core/theme/app_colors.dart';
 import 'package:cycle_sync_mvp_2/core/theme/app_typography.dart';
 import 'package:cycle_sync_mvp_2/core/theme/app_spacing.dart';
 import 'package:cycle_sync_mvp_2/presentation/providers/fasting_logs_provider.dart';
+import 'package:cycle_sync_mvp_2/presentation/providers/cycle_provider.dart';
 import 'package:logger/logger.dart';
 
-/// Fasting Log Dialog
+/// Fasting Log Dialog - with phase-based default duration and beginner/advanced toggle
 void showFastingLogDialog(BuildContext context, WidgetRef ref, {DateTime? selectedDate}) {
   final Logger logger = Logger();
-  DateTime startTime = DateTime.now().subtract(const Duration(hours: 16));
-  DateTime endTime = DateTime.now();
+  
+  // Default duration will be set based on cycle phase
+  double durationHours = 16.0;
+  bool isAdvancedMode = false;
 
   showDialog(
     context: context,
     builder: (BuildContext context) {
+      // Get current phase to set default duration
+      final currentPhase = ref.watch(currentPhaseProvider);
+      
+      // Set default duration based on phase
+      currentPhase.whenData((phase) {
+        // These defaults match the reference table from the database
+        durationHours = _getDefaultFastingDuration(phase);
+      });
+
       return AlertDialog(
         title: const Text('Log Fasting Window'),
         content: StatefulBuilder(
           builder: (BuildContext context, StateSetter setState) {
-            final duration = endTime.difference(startTime);
-            final durationHours = duration.inMinutes / 60.0;
-
             return SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Start Time
-                  Text('Start Time', style: AppTypography.subtitle2),
-                  SizedBox(height: AppSpacing.sm),
-                  GestureDetector(
-                    onTap: () async {
-                      final time = await showTimePicker(
-                        context: context,
-                        initialTime: TimeOfDay.fromDateTime(startTime),
-                      );
-                      if (time != null) {
-                        setState(() {
-                          startTime = DateTime(
-                            startTime.year,
-                            startTime.month,
-                            startTime.day,
-                            time.hour,
-                            time.minute,
-                          );
-                        });
-                      }
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: AppColors.textTertiary),
-                        borderRadius: BorderRadius.circular(AppSpacing.radiusSmall),
+                  // Mode Toggle
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        isAdvancedMode ? 'Advanced Mode' : 'Beginner Mode',
+                        style: AppTypography.subtitle2,
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      Switch(
+                        value: isAdvancedMode,
+                        onChanged: (value) {
+                          setState(() => isAdvancedMode = value);
+                        },
+                        activeColor: AppColors.peach,
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: AppSpacing.lg),
+
+                  // Phase Info (Beginner Mode only)
+                  if (!isAdvancedMode)
+                    currentPhase.when(
+                      data: (phase) {
+                        final defaultValue = _getDefaultFastingDuration(phase);
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Suggested for $phase phase',
+                              style: AppTypography.caption.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                            SizedBox(height: AppSpacing.xs),
+                            Text(
+                              '${defaultValue.toStringAsFixed(1)}h',
+                              style: AppTypography.header2.copyWith(
+                                color: AppColors.peach,
+                              ),
+                            ),
+                            SizedBox(height: AppSpacing.lg),
+                          ],
+                        );
+                      },
+                      loading: () => Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '${startTime.hour.toString().padLeft(2, '0')}:${startTime.minute.toString().padLeft(2, '0')}',
-                            style: AppTypography.body1,
+                            'Calculating phase...',
+                            style: AppTypography.caption,
                           ),
-                          Icon(Icons.access_time, color: AppColors.textSecondary),
+                          SizedBox(height: AppSpacing.lg),
                         ],
                       ),
+                      error: (_, __) => SizedBox(height: AppSpacing.lg),
+                    ),
+
+                  // Instructions
+                  Text(
+                    isAdvancedMode
+                        ? 'Set your custom fasting duration'
+                        : 'Adjust the slider to customize your fasting window',
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.textSecondary,
                     ),
                   ),
                   SizedBox(height: AppSpacing.lg),
 
-                  // End Time
-                  Text('End Time', style: AppTypography.subtitle2),
-                  SizedBox(height: AppSpacing.sm),
-                  GestureDetector(
-                    onTap: () async {
-                      final time = await showTimePicker(
-                        context: context,
-                        initialTime: TimeOfDay.fromDateTime(endTime),
-                      );
-                      if (time != null) {
-                        setState(() {
-                          endTime = DateTime(
-                            endTime.year,
-                            endTime.month,
-                            endTime.day,
-                            time.hour,
-                            time.minute,
-                          );
-                        });
-                      }
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: AppColors.textTertiary),
-                        borderRadius: BorderRadius.circular(AppSpacing.radiusSmall),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            '${endTime.hour.toString().padLeft(2, '0')}:${endTime.minute.toString().padLeft(2, '0')}',
-                            style: AppTypography.body1,
-                          ),
-                          Icon(Icons.access_time, color: AppColors.textSecondary),
-                        ],
-                      ),
-                    ),
-                  ),
-                  SizedBox(height: AppSpacing.lg),
 
-                  // Duration display
+                  // Duration Display
                   Container(
                     padding: const EdgeInsets.all(AppSpacing.md),
                     decoration: BoxDecoration(
@@ -128,6 +124,30 @@ void showFastingLogDialog(BuildContext context, WidgetRef ref, {DateTime? select
                       ],
                     ),
                   ),
+                  SizedBox(height: AppSpacing.md),
+
+                  // Slider for adjusting duration (8-24 hour range)
+                  Slider(
+                    value: durationHours,
+                    min: 8.0,
+                    max: 24.0,
+                    divisions: 32,
+                    label: '${durationHours.toStringAsFixed(1)}h',
+                    onChanged: (value) {
+                      setState(() => durationHours = value);
+                    },
+                  ),
+                  
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('8h', style: AppTypography.caption),
+                        Text('24h', style: AppTypography.caption),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             );
@@ -140,19 +160,16 @@ void showFastingLogDialog(BuildContext context, WidgetRef ref, {DateTime? select
           ),
           ElevatedButton(
             onPressed: () async {
-              if (endTime.isBefore(startTime)) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('End time must be after start time')),
-                );
-                return;
-              }
-
               try {
+                // Calculate start and end times based on duration
+                final endTime = DateTime.now();
+                final startTime = endTime.subtract(Duration(hours: durationHours.toInt(), minutes: ((durationHours % 1) * 60).toInt()));
+
                 await ref.read(
                   createFastingLogProvider((startTime, endTime, null, selectedDate)).future,
                 );
 
-                logger.i('✅ Fasting logged');
+                logger.i('✅ Fasting logged: ${durationHours.toStringAsFixed(1)}h');
                 
                 // Invalidate providers to refresh UI with new fasting log
                 ref.invalidate(todaysFastingLogsProvider);
@@ -164,9 +181,9 @@ void showFastingLogDialog(BuildContext context, WidgetRef ref, {DateTime? select
                 if (context.mounted) {
                   Navigator.of(context).pop();
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Fasting logged! ⏱️'),
-                      duration: Duration(seconds: 2),
+                    SnackBar(
+                      content: Text('${durationHours.toStringAsFixed(1)}h fast logged! ⏱️'),
+                      duration: const Duration(seconds: 2),
                     ),
                   );
                 }
@@ -185,4 +202,21 @@ void showFastingLogDialog(BuildContext context, WidgetRef ref, {DateTime? select
       );
     },
   );
+}
+
+/// Get default fasting duration based on cycle phase
+/// Based on phase recommendations from the database reference table
+double _getDefaultFastingDuration(String? phase) {
+  switch (phase) {
+    case 'Menstrual': // Days 1-5: Short to Medium Fast
+      return 13.0;
+    case 'Follicular': // Days 6-12: Long to Extended Fast
+      return 17.0;
+    case 'Ovulation': // Days 13-15: Short to Long Fast
+      return 13.0;
+    case 'Luteal': // Days 16-28: Medium to Long Fast
+      return 15.0;
+    default:
+      return 16.0; // Default fallback
+  }
 }
