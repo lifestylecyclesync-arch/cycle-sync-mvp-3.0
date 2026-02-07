@@ -13,9 +13,9 @@ class OnboardingScreen extends ConsumerStatefulWidget {
   final int startingStep;
 
   const OnboardingScreen({
-    Key? key,
+    super.key,
     this.startingStep = 0,
-  }) : super(key: key);
+  });
 
   @override
   ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();

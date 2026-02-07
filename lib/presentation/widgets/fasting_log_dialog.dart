@@ -49,7 +49,7 @@ void showFastingLogDialog(BuildContext context, WidgetRef ref, {DateTime? select
                         onChanged: (value) {
                           setState(() => isAdvancedMode = value);
                         },
-                        activeColor: AppColors.peach,
+                        activeThumbColor: AppColors.peach,
                       ),
                     ],
                   ),
